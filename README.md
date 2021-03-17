@@ -1,0 +1,1 @@
+Repositório destinado ao armazenamento de scripts shell úteis no dia dia.
