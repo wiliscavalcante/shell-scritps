@@ -4,7 +4,7 @@
 sudo yum update -y
 
 # Faz backup do conteúdo da home do usuário ec2-user para /tmp
-  sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home/ec2-user .
+sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home/ec2-user .
 
 
 # Configuração dos dispositivos e pontos de montagem
