@@ -26,7 +26,7 @@ for ((i=0; i<${#DEVICES[@]}; i++)); do
   UUID=$(sudo blkid -s UUID -o value "$DEVICE")
 
   # Adiciona uma entrada no /etc/fstab para montagem automática
-  if ! grep -q "$UUID" /etc/fstab; then
-    echo "UUID=$UUID $MOUNT_POINT xfs defaults 0 0" | sudo tee -a /etc/fstab
+  if ! sudo grep -q "$UUID" /etc/fstab; then
+    echo "UUID=$UUID $MOUNT_POINT xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
   fi
 done
