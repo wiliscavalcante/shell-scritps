@@ -8,8 +8,8 @@ sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home/ec2-user .
 
 
 # Configuração dos dispositivos e pontos de montagem
-DEVICES=("/dev/nvme1n1" "/dev/nvme1n2")
-MOUNT_POINTS=("/data" "/backup")
+DEVICES=("/dev/nvme1n1" "/dev/nvme2n1")
+MOUNT_POINTS=("/var/imagens" "/home/ec2-user")
 
 # Loop para formatar e montar os dispositivos
 for ((i=0; i<${#DEVICES[@]}; i++)); do
