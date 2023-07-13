@@ -3,6 +3,18 @@
 # Atualiza os pacotes do sistema
 sudo yum update -y
 
+# Instalação do Docker
+sudo amazon-linux-extras install docker -y
+sudo service docker start
+sudo usermod -a -G docker ec2-user
+
+# Instalação do Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Instalação do Git
+sudo yum install git -y
+
 # Faz backup do conteúdo da home do usuário ec2-user para /tmp
 sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home/ec2-user .
 
