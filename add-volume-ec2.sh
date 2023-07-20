@@ -3,6 +3,25 @@
 # Atualiza os pacotes do sistema
 sudo yum update -y
 
+# Instalação do pyenv
+sudo yum install -y gcc make openssl-devel bzip2-devel libffi-devel zlib-devel readline-devel sqlite-devel
+curl -L https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash
+
+# Configura o pyenv no ambiente
+echo 'export PATH="/home/ec2-user/.pyenv/bin:$PATH"' >> ~/.bashrc
+echo 'eval "$(pyenv init -)"' >> ~/.bashrc
+echo 'eval "$(pyenv virtualenv-init -)"' >> ~/.bashrc
+source ~/.bashrc
+
+# Instalação do Python 3.9.6
+pyenv install 3.9.6
+pyenv global 3.9.6
+
+
+
+# Atualiza os pacotes do sistema
+sudo yum update -y
+
 # Instalação do Docker
 sudo amazon-linux-extras install docker -y
 sudo service docker start
