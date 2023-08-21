@@ -1,54 +1,28 @@
 #!/bin/bash
 
-# Nome do bucket público de origem
-PUBLIC_BUCKET="public-bucket-name"
+# Nome do perfil AWS CLI para usar
+AWS_PROFILE="nome_do_perfil"
+
+# Nome do bucket público de origem e o objeto que você quer copiar
+PUBLIC_BUCKET="public-bucket"
+OBJECT_NAME="nome_do_objeto"
 
 # Nome do bucket privado de destino
-PRIVATE_BUCKET="private-bucket-name"
+PRIVATE_BUCKET="private-bucket"
 
-# Nome do perfil AWS CLI a ser usado para o bucket privado
-AWS_PROFILE="your-aws-profile"
+# Nome do diretório temporário
+TEMP_DIR="./temp_s3_dir"
 
-# Diretório temporário local para armazenar arquivos
-TEMP_DIR="./temp-dir"
-
-# Cria o diretório temporário
+# Criar o diretório temporário
 mkdir -p $TEMP_DIR
 
-# Sincroniza os arquivos do bucket público para o diretório temporário local
-echo "Copiando arquivos do bucket público $PUBLIC_BUCKET para o diretório temporário $TEMP_DIR..."
-aws s3 sync s3://$PUBLIC_BUCKET/ $TEMP_DIR/ --no-sign-request
+# Baixar o objeto do bucket público para o diretório temporário
+aws s3 cp s3://$PUBLIC_BUCKET/$OBJECT_NAME $TEMP_DIR/ --no-sign-request
 
-# Verifica se a operação de cópia foi bem-sucedida
-if [ $? -eq 0 ]; then
-    echo "Arquivos copiados com sucesso para o diretório temporário."
-else
-    echo "Erro durante a cópia dos arquivos. Saindo..."
-    exit 1
-fi
+# Fazer upload do objeto para o bucket privado na pasta "upload"
+aws s3 cp $TEMP_DIR/$OBJECT_NAME s3://$PRIVATE_BUCKET/upload/ --profile $AWS_PROFILE
 
-# Sincroniza os arquivos do diretório temporário local para o bucket privado
-echo "Enviando arquivos do diretório temporário $TEMP_DIR para o bucket privado $PRIVATE_BUCKET..."
-aws s3 sync $TEMP_DIR/ s3://$PRIVATE_BUCKET/ --profile $AWS_PROFILE
-
-# Verifica se a operação de upload foi bem-sucedida
-if [ $? -eq 0 ]; then
-    echo "Arquivos enviados com sucesso para o bucket privado."
-else
-    echo "Erro durante o envio dos arquivos. Saindo..."
-    exit 1
-fi
-
-# Remove o diretório temporário
-echo "Removendo o diretório temporário $TEMP_DIR..."
+# Remover o diretório temporário e seu conteúdo
 rm -rf $TEMP_DIR
 
-# Verifica se a operação de remoção foi bem-sucedida
-if [ $? -eq 0 ]; then
-    echo "Diretório temporário removido com sucesso."
-else
-    echo "Erro durante a remoção do diretório temporário. Saindo..."
-    exit 1
-fi
-
-echo "Operação concluída com sucesso."
+echo "A cópia foi concluída e o diretório temporário foi removido."
