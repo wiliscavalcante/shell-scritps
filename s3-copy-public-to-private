@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Nome do bucket público de origem
+PUBLIC_BUCKET="public-bucket-name"
+
+# Nome do bucket privado de destino
+PRIVATE_BUCKET="private-bucket-name"
+
+# Nome do perfil AWS CLI a ser usado para o bucket privado
+AWS_PROFILE="your-aws-profile"
+
+# Diretório temporário local para armazenar arquivos
+TEMP_DIR="./temp-dir"
+
+# Cria o diretório temporário
+mkdir -p $TEMP_DIR
+
+# Sincroniza os arquivos do bucket público para o diretório temporário local
+echo "Copiando arquivos do bucket público $PUBLIC_BUCKET para o diretório temporário $TEMP_DIR..."
+aws s3 sync s3://$PUBLIC_BUCKET/ $TEMP_DIR/ --no-sign-request
+
+# Verifica se a operação de cópia foi bem-sucedida
+if [ $? -eq 0 ]; then
+    echo "Arquivos copiados com sucesso para o diretório temporário."
+else
+    echo "Erro durante a cópia dos arquivos. Saindo..."
+    exit 1
+fi
+
+# Sincroniza os arquivos do diretório temporário local para o bucket privado
+echo "Enviando arquivos do diretório temporário $TEMP_DIR para o bucket privado $PRIVATE_BUCKET..."
+aws s3 sync $TEMP_DIR/ s3://$PRIVATE_BUCKET/ --profile $AWS_PROFILE
+
+# Verifica se a operação de upload foi bem-sucedida
+if [ $? -eq 0 ]; then
+    echo "Arquivos enviados com sucesso para o bucket privado."
+else
+    echo "Erro durante o envio dos arquivos. Saindo..."
+    exit 1
+fi
+
+# Remove o diretório temporário
+echo "Removendo o diretório temporário $TEMP_DIR..."
+rm -rf $TEMP_DIR
+
+# Verifica se a operação de remoção foi bem-sucedida
+if [ $? -eq 0 ]; then
+    echo "Diretório temporário removido com sucesso."
+else
+    echo "Erro durante a remoção do diretório temporário. Saindo..."
+    exit 1
+fi
+
+echo "Operação concluída com sucesso."
