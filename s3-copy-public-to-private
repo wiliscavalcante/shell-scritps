@@ -1,28 +1,51 @@
 #!/bin/bash
 
-# Nome do perfil AWS CLI para usar
-AWS_PROFILE="nome_do_perfil"
+# Nome do bucket público
+PUBLIC_BUCKET="nome-do-bucket-publico"
 
-# Nome do bucket público de origem e o objeto que você quer copiar
-PUBLIC_BUCKET="public-bucket"
-OBJECT_NAME="nome_do_objeto"
+# Nome do bucket privado
+PRIVATE_BUCKET="nome-do-bucket-privado"
 
-# Nome do bucket privado de destino
-PRIVATE_BUCKET="private-bucket"
+# Nome do perfil AWS
+AWS_PROFILE="nome-do-perfil"
 
-# Nome do diretório temporário
-TEMP_DIR="./temp_s3_dir"
+# Diretório temporário
+TEMP_DIR="./temp-dir"
 
-# Criar o diretório temporário
+# Cria o diretório temporário se ele não existir
 mkdir -p $TEMP_DIR
 
-# Baixar o objeto do bucket público para o diretório temporário
-aws s3 cp s3://$PUBLIC_BUCKET/$OBJECT_NAME $TEMP_DIR/ --no-sign-request
+# Copia os arquivos do bucket público para o diretório temporário
+aws s3 cp s3://$PUBLIC_BUCKET/ $TEMP_DIR --recursive --no-sign-request
 
-# Fazer upload do objeto para o bucket privado na pasta "upload"
-aws s3 cp $TEMP_DIR/$OBJECT_NAME s3://$PRIVATE_BUCKET/upload/ --profile $AWS_PROFILE
+# Verifica se a cópia foi bem-sucedida
+if [ $? -eq 0 ]; then
+  echo "Arquivos copiados com sucesso para o diretório temporário."
+else
+  echo "Falha ao copiar arquivos para o diretório temporário."
+  exit 1
+fi
 
-# Remover o diretório temporário e seu conteúdo
+# Copia os arquivos do diretório temporário para o bucket privado na pasta 'upload'
+aws s3 cp $TEMP_DIR/ s3://$PRIVATE_BUCKET/upload/ --recursive --profile $AWS_PROFILE
+
+# Verifica se o upload foi bem-sucedido
+if [ $? -eq 0 ]; then
+  echo "Arquivos enviados com sucesso para o bucket privado."
+else
+  echo "Falha ao enviar arquivos para o bucket privado."
+  exit 1
+fi
+
+# Remove o diretório temporário
 rm -rf $TEMP_DIR
 
-echo "A cópia foi concluída e o diretório temporário foi removido."
+# Verifica se a remoção foi bem-sucedida
+if [ $? -eq 0 ]; then
+  echo "Diretório temporário removido com sucesso."
+else
+  echo "Falha ao remover o diretório temporário."
+  exit 1
+fi
+
+echo "Script concluído."
