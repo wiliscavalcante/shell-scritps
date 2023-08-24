@@ -43,3 +43,20 @@ for file_name in os.listdir(TEMP_DIR):
     os.remove(file_path)
 
 os.rmdir(TEMP_DIR)
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  --data '{
+    "streams": [
+      {
+        "stream": {
+          "foo": "bar"
+        },
+        "values": [
+          ["'$(date +%s)000000000'", "Hello, world!"]
+        ]
+      }
+    ]
+  }' \
+  http://loki.meudominio.com/loki/api/v1/push
+
