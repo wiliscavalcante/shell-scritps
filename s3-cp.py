@@ -55,12 +55,13 @@ functions:
 
 resources:
   Resources:
-    HelloLambdaPermission:
+    HelloLambdaCrossAccountPermission:
       Type: 'AWS::Lambda::Permission'
       Properties:
         Action: 'lambda:InvokeFunction'
         FunctionName:
           'Fn::GetAtt':
-            - 'HelloLambdaFunction' # Nome lógico do recurso Lambda no CloudFormation
+            - 'HelloLambdaFunction'  # Nome lógico da função Lambda, baseado no nome da função no serverless.yml
             - 'Arn'
         Principal: 'arn:aws:iam::ID_DA_OUTRA_CONTA:role/NomeDaRole'
+        StatementId: 'IDUnicoParaEstaPermissao'
