@@ -44,19 +44,23 @@ for file_name in os.listdir(TEMP_DIR):
 
 os.rmdir(TEMP_DIR)
 
-curl -X POST \
-  -H "Content-Type: application/json" \
-  --data '{
-    "streams": [
-      {
-        "stream": {
-          "foo": "bar"
-        },
-        "values": [
-          ["'$(date +%s)000000000'", "Hello, world!"]
-        ]
-      }
-    ]
-  }' \
-  http://loki.meudominio.com/loki/api/v1/push
+service: meu-servico
+provider:
+  name: aws
+  runtime: nodejs14.x
 
+functions:
+  hello:
+    handler: handler.hello
+
+resources:
+  Resources:
+    HelloLambdaPermission:
+      Type: 'AWS::Lambda::Permission'
+      Properties:
+        Action: 'lambda:InvokeFunction'
+        FunctionName:
+          'Fn::GetAtt':
+            - 'HelloLambdaFunction' # Nome lógico do recurso Lambda no CloudFormation
+            - 'Arn'
+        Principal: 'arn:aws:iam::ID_DA_OUTRA_CONTA:role/NomeDaRole'
