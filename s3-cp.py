@@ -44,17 +44,28 @@ for file_name in os.listdir(TEMP_DIR):
 
 os.rmdir(TEMP_DIR)
 
-# Assume a role e obtenha credenciais temporárias
-temp_role=$(aws sts assume-role \
-                    --role-arn "arn:aws:iam::ID_DA_CONTA:role/NomeDaRole" \
-                    --role-session-name "SessaoTemporaria")
+#!/bin/bash
 
-# Extraia e exporte as credenciais temporárias para variáveis de ambiente
-export AWS_ACCESS_KEY_ID=$(echo $temp_role | jq .Credentials.AccessKeyId | xargs)
-export AWS_SECRET_ACCESS_KEY=$(echo $temp_role | jq .Credentials.SecretAccessKey | xargs)
-export AWS_SESSION_TOKEN=$(echo $temp_role | jq .Credentials.SessionToken | xargs)
+# Configurações
+ROLE_ARN="arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME" # Substitua ACCOUNT_ID e ROLE_NAME
+ROLE_SESSION_NAME="TemporarySession"
+TEMP_PROFILE_NAME="tempProfile"
 
-# Liste os buckets S3
-aws s3 ls
+# Assume a role e guarda as credenciais temporárias em uma variável
+ASSUMED_ROLE=$(aws sts assume-role --role-arn $ROLE_ARN --role-session-name $ROLE_SESSION_NAME)
+
+# Extrai as credenciais temporárias usando 'jq'
+ACCESS_KEY=$(echo $ASSUMED_ROLE | jq -r '.Credentials.AccessKeyId')
+SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | jq -r '.Credentials.SecretAccessKey')
+SESSION_TOKEN=$(echo $ASSUMED_ROLE | jq -r '.Credentials.SessionToken')
+EXPIRATION=$(echo $ASSUMED_ROLE | jq -r '.Credentials.Expiration')
+
+# Cria ou atualiza o perfil temporário no arquivo de configuração da AWS CLI
+aws configure set aws_access_key_id $ACCESS_KEY --profile $TEMP_PROFILE_NAME
+aws configure set aws_secret_access_key $SECRET_ACCESS_KEY --profile $TEMP_PROFILE_NAME
+aws configure set aws_session_token $SESSION_TOKEN --profile $TEMP_PROFILE_NAME
+
+echo "Credenciais temporárias configuradas para o perfil $TEMP_PROFILE_NAME até $EXPIRATION"
+
 
 
