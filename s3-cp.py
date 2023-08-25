@@ -65,3 +65,19 @@ resources:
             - 'Arn'
         Principal: 'arn:aws:iam::ID_DA_OUTRA_CONTA:role/NomeDaRole'
         StatementId: 'IDUnicoParaEstaPermissao'
+
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:REGION:ID_DA_SUA_CONTA:function:NOME_DA_SUA_FUNCAO",
+      "Principal": {
+        "AWS": "arn:aws:iam::ID_DA_OUTRA_CONTA:role/NomeDaRole"
+      }
+    }
+  ]
+}
+
