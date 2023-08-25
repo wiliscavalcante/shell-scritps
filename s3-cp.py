@@ -44,35 +44,17 @@ for file_name in os.listdir(TEMP_DIR):
 
 os.rmdir(TEMP_DIR)
 
-service: meu-servico
-provider:
-  name: aws
-  runtime: nodejs14.x
+# Assume a role e obtenha credenciais temporárias
+temp_role=$(aws sts assume-role \
+                    --role-arn "arn:aws:iam::ID_DA_CONTA:role/NomeDaRole" \
+                    --role-session-name "SessaoTemporaria")
 
-functions:
-  hello:
-    handler: handler.hello
+# Extraia e exporte as credenciais temporárias para variáveis de ambiente
+export AWS_ACCESS_KEY_ID=$(echo $temp_role | jq .Credentials.AccessKeyId | xargs)
+export AWS_SECRET_ACCESS_KEY=$(echo $temp_role | jq .Credentials.SecretAccessKey | xargs)
+export AWS_SESSION_TOKEN=$(echo $temp_role | jq .Credentials.SessionToken | xargs)
 
-resources:
-  Resources:
-    HelloLambdaCrossAccountPermission:
-      Type: 'AWS::Lambda::Permission'
-      Properties:
-        Action: 'lambda:InvokeFunction'
-        FunctionName:
-          'Fn::GetAtt':
-            - 'HelloLambdaFunction'  # Nome lógico da função Lambda, baseado no nome da função no serverless.yml
-            - 'Arn'
-        Principal: 'arn:aws:iam::ID_DA_OUTRA_CONTA:role/NomeDaRole'
-        StatementId: 'IDUnicoParaEstaPermissao'
-
-{
-	"Version": "2012-10-17",
-	"Statement": {
-		"Effect": "Allow",
-		"Action": "sts:AssumeRole",
-		"Resource": "arn:aws:iam::539402869524:role/RoleForCrossAccountDeployServerless"
-	}
-}
+# Liste os buckets S3
+aws s3 ls
 
 
