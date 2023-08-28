@@ -67,3 +67,31 @@ RUN pip3.11 install gunicorn --trusted-host pypi.org --trusted-host files.python
 ADD . /app
 EXPOSE 5000
 ENTRYPOINT ["gunicorn", "--config", "gunicorn_config.py", "app.wsgi:app"]
+########
+# Estágio de construção
+FROM python:3.11-bookworm AS build
+
+RUN mkdir /app
+WORKDIR /app
+
+RUN pip install poetry --trusted-host pypi.org --trusted-host files.pythonhosted.org
+COPY pyproject.toml ./
+RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
+RUN pip3.11 install -r requirements.txt --target ./deps --trusted-host pypi.org --trusted-host files.pythonhosted.org
+RUN pip3.11 install gunicorn --target ./deps --trusted-host pypi.org --trusted-host files.pythonhosted.org
+
+COPY . /app
+
+# Estágio de execução
+FROM python:3.11-slim AS runtime
+
+COPY --from=build /app/deps /deps
+COPY --from=build /app /app
+
+WORKDIR /app
+EXPOSE 5000
+
+# Atualize PATH para incluir as dependências do Python instaladas
+ENV PYTHONPATH=/deps
+
+ENTRYPOINT ["gunicorn", "--config", "gunicorn_config.py", "app.wsgi:app"]
