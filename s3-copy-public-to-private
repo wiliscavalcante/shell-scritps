@@ -49,3 +49,21 @@ else
 fi
 
 echo "Script concluído."
+#######
+
+FROM python:3.11-bookworm
+
+
+RUN mkdir /app
+WORKDIR /app
+
+# RUN poetry install
+RUN pip install poetry --trusted-host pypi.org --trusted-host files.pythonhosted.org
+COPY pyproject.toml ./
+RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
+RUN pip3.11 install -r requirements.txt --target . --trusted-host pypi.org --trusted-host files.pythonhosted.org
+RUN pip3.11 install gunicorn --trusted-host pypi.org --trusted-host files.pythonhosted.org
+
+ADD . /app
+EXPOSE 5000
+ENTRYPOINT ["gunicorn", "--config", "gunicorn_config.py", "app.wsgi:app"]
