@@ -15,3 +15,6 @@ Quando a demanda aumenta e as métricas definidas ultrapassam um limite superior
 De modo similar, quando a demanda diminui, o Auto Scaling automaticamente desliga as instâncias excedentes, permitindo eficiência de custos sem sacrificar a performance.
 4. Balanceamento de Carga:
 Em conjunto com o Auto Scaling, utilizamos Load Balancers para distribuir o tráfego de entrada de forma eficiente entre as instâncias, assegurando que nenhuma instância esteja sobrecarregada.
+
+aws s3api delete-objects --bucket seu-bucket --delete "$(aws s3api list-object-versions --bucket seu-bucket --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}')"
+
