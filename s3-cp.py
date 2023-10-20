@@ -81,4 +81,19 @@ RUN apt-get install -y libgdal-dev \
 RUN sudo pip install geopandas --trusted-host pypi.org --trusted-host files.pythonhosted.org
 RUN sudo pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==`gdal-config --version` --trusted-host pypi.org --trusted-host files.pythonhosted.org
 
+###New
+FROM apache/airflow:2.6.2
+COPY requirements.txt /requirements.txt
+RUN pip install --user --upgrade pip --trusted-host pypi.org --trusted-host files.pythonhosted.org
+RUN pip install --no-cache-dir --user -r /requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org
+USER root
+RUN apt-get update && \
+    apt-get install --allow-downgrades -y libpq5=13.11-0+deb11u1
+RUN apt-get install -y libgdal-dev \
+    gdal-bin \
+    gcc \
+    g++
+RUN sudo pip install geopandas --trusted-host pypi.org --trusted-host files.pythonhosted.org
+RUN sudo pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==`gdal-config --version` --trusted-host pypi.org --trusted-host files.pythonhosted.org
+
 
