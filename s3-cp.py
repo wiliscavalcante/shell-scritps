@@ -82,27 +82,31 @@ RUN sudo pip install geopandas --trusted-host pypi.org --trusted-host files.pyth
 RUN sudo pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==`gdal-config --version` --trusted-host pypi.org --trusted-host files.pythonhosted.org
 
 ###New
+# Use a imagem oficial do Apache Airflow
 FROM apache/airflow:2.6.2
+
+# Copie os requisitos para evitar instalações desnecessárias quando os requisitos não mudarem
+COPY requirements.txt /requirements.txt
 
 USER root
 
-# Instalação de pacotes do sistema
+# Atualize os pacotes e instale as dependências necessárias em um único RUN para reduzir o número de camadas do Docker
 RUN apt-get update && \
-    apt-get install --allow-downgrades -y libpq5=13.11-0+deb11u1 \
-    libgdal-dev gdal-bin gcc g++
+    apt-get install --no-install-recommends --allow-downgrades -y \
+    libpq5=13.11-0+deb11u1 \
+    libgdal-dev \
+    gdal-bin \
+    gcc \
+    g++ && \
+    rm -rf /var/lib/apt/lists/*
 
-# Mudar de volta para o usuário não-root (airflow)
+# Atualize o pip e instale as bibliotecas necessárias do Python
+RUN pip install --upgrade pip --trusted-host pypi.org --trusted-host files.pythonhosted.org && \
+    pip install --no-cache-dir -r /requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org && \
+    pip install geopandas --trusted-host pypi.org --trusted-host files.pythonhosted.org && \
+    pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==`gdal-config --version` --trusted-host pypi.org --trusted-host files.pythonhosted.org
+
+# Volte para o usuário padrão do Airflow
 USER airflow
-
-# Instalação de pacotes Python
-RUN pip install --user --upgrade pip --trusted-host pypi.org --trusted-host files.pythonhosted.org
-
-# Copiar e instalar as dependências Python do seu projeto
-COPY requirements.txt /requirements.txt
-RUN pip install --no-cache-dir --user -r /requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org
-
-# Instalar geopandas e GDAL
-RUN pip install geopandas --trusted-host pypi.org --trusted-host files.pythonhosted.org
-RUN pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==$(gdal-config --version) --trusted-host pypi.org --trusted-host files.pythonhosted.org
 
 
