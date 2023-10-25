@@ -1,20 +1,21 @@
 #!/bin/bash
 
 TAG_NAME="MinhaChave"
+REGION="us-west-1" # Modifique para sua região desejada
 output_file="recursos_a_alterar.txt"
 
 # Limpar arquivo de saída
 > $output_file
 
 # Listar Auto Scaling Groups com a tag
-ASGS=$(aws autoscaling describe-auto-scaling-groups --query "AutoScalingGroups[?contains(Tags[?Key==\`${TAG_NAME}\`].Key, \`${TAG_NAME}\`)].AutoScalingGroupName" --output text)
+ASGS=$(aws autoscaling describe-auto-scaling-groups --region $REGION --query "AutoScalingGroups[?contains(Tags[?Key==\`${TAG_NAME}\`].Key, \`${TAG_NAME}\`)].AutoScalingGroupName" --output text)
 echo "ASGs com a tag '$TAG_NAME':" >> $output_file
 for asg in $ASGS; do
   echo $asg >> $output_file
 done
 
 # Listar instâncias EC2 com a tag
-INSTANCES=$(aws ec2 describe-instances --filters "Name=tag:$TAG_NAME,Values=*" --query 'Reservations[*].Instances[*].InstanceId' --output text)
+INSTANCES=$(aws ec2 describe-instances --region $REGION --filters "Name=tag:$TAG_NAME,Values=*" --query 'Reservations[*].Instances[*].InstanceId' --output text)
 echo "\nInstâncias EC2 com a tag '$TAG_NAME':" >> $output_file
 for instance in $INSTANCES; do
   echo $instance >> $output_file
@@ -28,13 +29,14 @@ echo
 if [[ $REPLY == s || $REPLY == S ]]
 then
     for asg in $ASGS; do
-      aws autoscaling delete-tags --tags "ResourceId=$asg,ResourceType=auto-scaling-group,Key=$TAG_NAME"
+      aws autoscaling delete-tags --region $REGION --tags "ResourceId=$asg,ResourceType=auto-scaling-group,Key=$TAG_NAME"
     done
 
     for instance in $INSTANCES; do
-      aws ec2 delete-tags --resources $instance --tags "Key=$TAG_NAME"
+      aws ec2 delete-tags --resources $instance --tags "Key=$TAG_NAME" --region $REGION
     done
 fi
+
 
 #######
 aws ec2 create-tags --resources i-1234567890abcdef0 --tags Key=NomeDaTag,Value=ValorDaTag
