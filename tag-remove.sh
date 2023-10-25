@@ -1,3 +1,5 @@
+#!/bin/bash
+
 output_file="recursos_a_alterar.txt"
 
 # Limpar arquivo de saída
@@ -32,3 +34,6 @@ then
       aws ec2 delete-tags --resources $instance --tags "Key=MinhaChave"
     done
 fi
+#######
+aws ec2 create-tags --resources i-1234567890abcdef0 --tags Key=NomeDaTag,Value=ValorDaTag
+aws autoscaling create-or-update-tags --tags ResourceId=my-asg-name,ResourceType=auto-scaling-group,Key=NomeDaTag,Value=ValorDaTag,PropagateAtLaunch=true
