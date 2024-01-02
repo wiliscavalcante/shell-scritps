@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# Cria o diretório /opt/logstash_tmp
+echo "Criando o diretório /opt/logstash_tmp..."
+mkdir -p /opt/logstash_tmp
+
+# Altera a propriedade do diretório para o usuário logstash
+echo "Alterando a propriedade de /opt/logstash_tmp para o usuário logstash..."
+chown logstash:logstash /opt/logstash_tmp
+
+# Altera as permissões do arquivo de configuração
+echo "Alterando as permissões de /etc/logstash/conf.d/s3_output_syslogs.conf..."
+chmod o+r /etc/logstash/conf.d/s3_output_syslogs.conf
+
 # Define o caminho para o arquivo jvm.options do Logstash
 JVM_OPTIONS_FILE="/caminho/para/seu/logstash/config/jvm.options"
 
@@ -35,3 +47,4 @@ if ! systemctl is-active --quiet logstash; then
 else
     echo "Falha ao parar Logstash. Verifique o status do serviço."
 fi
+
