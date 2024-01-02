@@ -27,7 +27,7 @@ if ! systemctl is-active --quiet logstash; then
     cp $JVM_OPTIONS_FILE $JVM_OPTIONS_FILE.bak
 
     # Adiciona a opção -Djava.io.tmpdir ao arquivo jvm.options
-    echo "-Djava.io.tmpdir=/opt/logstash_tmp" >> $JVM_OPTIONS_FILE
+    sed -i '$a -Djava.io.tmpdir=/opt/logstash_tmp' $JVM_OPTIONS_FILE
 
     # Altera a configuração Xms para 512m
     sed -i '/^-Xms/c\-Xms512m' $JVM_OPTIONS_FILE
