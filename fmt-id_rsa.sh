@@ -27,4 +27,7 @@ GIT_SSH_COMMAND='ssh -i /tmp/id_rsa -o StrictHostKeyChecking=no' git clone git@g
 
 # Limpeza: remove o arquivo temporário após o uso
 rm /tmp/id_rsa
+# Suponha que sua chave esteja em /caminho/para/minha_chave
+GIT_SSH_COMMAND='ssh -i /caminho/para/minha_chave -o IdentitiesOnly=yes -o StrictHostKeyChecking=no' git clone git@github.com:usuario/repositorio.git
+
 
