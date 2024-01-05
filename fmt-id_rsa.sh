@@ -3,14 +3,12 @@
 # Lê a variável de ambiente contendo a chave SSH privada
 CHAVE_SSH_PRIVADA=$(echo "$SSH_PRIVATE_KEY")
 
-# Remove as linhas BEGIN e END
-CHAVE_SSH_PRIVADA=$(echo "$CHAVE_SSH_PRIVADA" | sed '/^-----BEGIN OPENSSH PRIVATE KEY-----$/d' | sed '/^-----END OPENSSH PRIVATE KEY-----$/d')
+# Substitui um caractere específico por quebras de linha
+# Aqui, estou assumindo que o caractere é um espaço. Se for diferente, você precisará ajustar isso.
+CHAVE_SSH_PRIVADA_FORMATADA=$(echo "$CHAVE_SSH_PRIVADA" | sed 's/ /\n/g')
 
-# Substitui espaços por quebras de linha
-CHAVE_SSH_PRIVADA=$(echo "$CHAVE_SSH_PRIVADA" | tr ' ' '\n')
-
-# Escreve a chave em um arquivo temporário
-echo "$CHAVE_SSH_PRIVADA" > /tmp/id_rsa
+# Escreve a chave formatada em um arquivo temporário
+echo "$CHAVE_SSH_PRIVADA_FORMATADA" > /tmp/id_rsa
 
 # Define as permissões corretas
 chmod 600 /tmp/id_rsa
