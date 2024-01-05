@@ -3,12 +3,20 @@
 # Lê a variável de ambiente contendo a chave SSH privada
 CHAVE_SSH_PRIVADA=$(echo "$SSH_PRIVATE_KEY")
 
-# Substitui um caractere específico por quebras de linha
-# Aqui, estou assumindo que o caractere é um espaço. Se for diferente, você precisará ajustar isso.
-CHAVE_SSH_PRIVADA_FORMATADA=$(echo "$CHAVE_SSH_PRIVADA" | sed 's/ /\n/g')
+# Extrai a linha BEGIN
+BEGIN_LINE=$(echo "$CHAVE_SSH_PRIVADA" | grep "BEGIN OPENSSH PRIVATE KEY")
 
-# Escreve a chave formatada em um arquivo temporário
-echo "$CHAVE_SSH_PRIVADA_FORMATADA" > /tmp/id_rsa
+# Extrai a linha END
+END_LINE=$(echo "$CHAVE_SSH_PRIVADA" | grep "END OPENSSH PRIVATE KEY")
+
+# Remove as linhas BEGIN e END e substitui espaços por quebras de linha no conteúdo
+CHAVE_SSH_PRIVADA_CONTEUDO=$(echo "$CHAVE_SSH_PRIVADA" | sed '/BEGIN OPENSSH PRIVATE KEY/d' | sed '/END OPENSSH PRIVATE KEY/d' | tr ' ' '\n')
+
+# Reconstrói a chave com as linhas BEGIN e END
+CHAVE_SSH_PRIVADA_FINAL="$BEGIN_LINE\n$CHAVE_SSH_PRIVADA_CONTEUDO\n$END_LINE"
+
+# Escreve a chave no arquivo temporário
+echo -e "$CHAVE_SSH_PRIVADA_FINAL" > /tmp/id_rsa
 
 # Define as permissões corretas
 chmod 600 /tmp/id_rsa
@@ -19,3 +27,4 @@ GIT_SSH_COMMAND='ssh -i /tmp/id_rsa -o StrictHostKeyChecking=no' git clone git@g
 
 # Limpeza: remove o arquivo temporário após o uso
 rm /tmp/id_rsa
+
