@@ -50,7 +50,8 @@ Atenciosamente,
 [Seu Nome]
 
 
-aws route53 change-resource-record-sets --hosted-zone-id /hostedzone/ZONA_ID --change-batch '{"Comment": "Update NLB alias record", "Changes": [{"Action": "UPSERT", "ResourceRecordSet": {"Name": "RECORD_SET_NAME", "Type": "A", "AliasTarget": {"HostedZoneId": "NLB_HOSTED_ZONE_ID", "DNSName": "NLB_DNS_NAME", "EvaluateTargetHealth": false}}}]}'
+aws route53 change-resource-record-sets --hosted-zone-id /hostedzone/Z1234567890ABC --change-batch '{"Comment": "Update NLB alias record", "Changes": [{"Action": "UPSERT", "ResourceRecordSet": {"Name": "meudominio.com", "Type": "A", "AliasTarget": {"HostedZoneId": "Z0987654321XYZ", "DNSName": "meu-nlb-1234567890abc.elb.amazonaws.com", "EvaluateTargetHealth": false}}}]}'
+
 
 
 
