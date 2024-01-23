@@ -52,6 +52,13 @@ Atenciosamente,
 
 aws route53 change-resource-record-sets --hosted-zone-id /hostedzone/Z1234567890ABC --change-batch '{"Comment": "Update NLB alias record", "Changes": [{"Action": "UPSERT", "ResourceRecordSet": {"Name": "meudominio.com", "Type": "A", "AliasTarget": {"HostedZoneId": "Z0987654321XYZ", "DNSName": "meu-nlb-1234567890abc.elb.amazonaws.com", "EvaluateTargetHealth": false}}}]}'
 
+aws route53 change-resource-record-sets --hosted-zone-id ZONA_ID --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"example.com","Type":"TXT","TTL":300,"ResourceRecords":[{"Value":"\"your TXT value\""}]}}]}'
+aws route53 change-resource-record-sets --hosted-zone-id ZONA_ID --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"cname.example.com","Type":"CNAME","TTL":300,"ResourceRecords":[{"Value":"otherdomain.com"}]}}]}'
+aws route53 change-resource-record-sets --hosted-zone-id ZONA_ID --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"a.example.com","Type":"A","TTL":300,"ResourceRecords":[{"Value":"192.0.2.1"}]}}]}'
+
+
+
+
 
 
 
