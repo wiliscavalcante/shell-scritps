@@ -53,6 +53,29 @@ Atenciosamente,
 Delete TXT:
 aws route53 change-resource-record-sets --hosted-zone-id Z1234567890ABC --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"example.com","Type":"TXT","TTL":300,"ResourceRecords":[{"Value":"\"v=spf1 include:example.net ~all\""}]}}]}'
 
+aws route53 list-resource-record-sets --hosted-zone-id /hostedzone/ZONEID --query "ResourceRecordSets[?Name == 'example.com.']"
+
+{
+  "Comment": "Deletando o registro A para o NLB",
+  "Changes": [
+    {
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "example.com.",
+        "Type": "A",
+        "AliasTarget": {
+          "HostedZoneId": "ID do NLB",
+          "DNSName": "nome-do-nlb-xxxxxxxxx.region.elb.amazonaws.com",
+          "EvaluateTargetHealth": false
+        }
+      }
+    }
+  ]
+}
+
+aws route53 change-resource-record-sets --hosted-zone-id /hostedzone/ZONEID --change-batch file://path_to_your_json_file.json
+
+
 
 
 
