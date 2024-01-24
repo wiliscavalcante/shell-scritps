@@ -50,30 +50,15 @@ Atenciosamente,
 [Seu Nome]
 
 
-Delete TXT:
-aws route53 change-resource-record-sets --hosted-zone-id Z1234567890ABC --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"example.com","Type":"TXT","TTL":300,"ResourceRecords":[{"Value":"\"v=spf1 include:example.net ~all\""}]}}]}'
+Oi, time! 🚀
 
-aws route53 list-resource-record-sets --hosted-zone-id /hostedzone/ZONEID --query "ResourceRecordSets[?Name == 'example.com.']"
+Acabei de criar uma página no Confluence com uma lista de comandos AWS CLI que nos ajudaram em troubleshooting recentemente. Dêem uma olhada: Comandos AWS CLI.
 
-{
-  "Comment": "Deletando o registro A para o NLB",
-  "Changes": [
-    {
-      "Action": "DELETE",
-      "ResourceRecordSet": {
-        "Name": "example.com.",
-        "Type": "A",
-        "AliasTarget": {
-          "HostedZoneId": "ID do NLB",
-          "DNSName": "nome-do-nlb-xxxxxxxxx.region.elb.amazonaws.com",
-          "EvaluateTargetHealth": false
-        }
-      }
-    }
-  ]
-}
+Se você tiver algum comando que seja um verdadeiro salva-vidas, por favor, adicione à página ou me mande para incluirmos. Vamos fazer dessa página um super recurso para todos nós! 💡
 
-aws route53 change-resource-record-sets --hosted-zone-id /hostedzone/ZONEID --change-batch file://path_to_your_json_file.json
+Obrigado!
+
+
 
 
 
