@@ -1,43 +1,5 @@
 #!/bin/bash
 
-# Atualiza os pacotes do sistema
-sudo yum update -y
-
-# Instalação do pyenv
-sudo yum install -y gcc make openssl-devel bzip2-devel libffi-devel zlib-devel readline-devel sqlite-devel
-curl -L https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash
-
-# Configura o pyenv no ambiente
-echo 'export PATH="/home/ec2-user/.pyenv/bin:$PATH"' >> ~/.bashrc
-echo 'eval "$(pyenv init -)"' >> ~/.bashrc
-echo 'eval "$(pyenv virtualenv-init -)"' >> ~/.bashrc
-source ~/.bashrc
-
-# Instalação do Python 3.9.6
-pyenv install 3.9.6
-pyenv global 3.9.6
-
-
-
-# Atualiza os pacotes do sistema
-sudo yum update -y
-
-# Instalação do Docker
-sudo amazon-linux-extras install docker -y
-sudo service docker start
-sudo usermod -a -G docker ec2-user
-
-# Instalação do Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-
-# Instalação do Git
-sudo yum install git -y
-
-# Faz backup do conteúdo da home do usuário ec2-user para /tmp
-sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home/ec2-user .
-
-
 # Configuração dos dispositivos e pontos de montagem
 DEVICES=("/dev/nvme1n1" "/dev/nvme2n1")
 MOUNT_POINTS=("/var/imagens" "/home/ec2-user")
