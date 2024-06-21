@@ -1,53 +1,84 @@
-# save this as get_secret.py
+import json
 import boto3
-from botocore.exceptions import ClientError
+import os
+import logging
 
-def get_secret():
-    secret_name = "your-secret-name"
-    region_name = "your-region"
+# Configurar o logger
+logger = logging.getLogger()
+logger.setLevel(logging.WARNING)  # Alterar nível de log para WARNING
 
-    session = boto3.session.Session()
-    client = session.client(
-        service_name='secretsmanager',
-        region_name=region_name
-    )
+s3 = boto3.client('s3')
 
+def object_exists(bucket, key, size):
     try:
-        get_secret_value_response = client.get_secret_value(
-            SecretId=secret_name
-        )
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'DecryptionFailureException':
-            raise e
-        elif e.response['Error']['Code'] == 'InternalServiceErrorException':
-            raise e
-        elif e.response['Error']['Code'] == 'InvalidParameterException':
-            raise e
-        elif e.response['Error']['Code'] == 'InvalidRequestException':
-            raise e
-        elif e.response['Error']['Code'] == 'ResourceNotFoundException':
-            raise e
+        head_response = s3.head_object(Bucket=bucket, Key=key)
+        return head_response['ContentLength'] == size
+    except s3.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            return False
         else:
-            raise e
-    else:
-        if 'SecretString' in get_secret_value_response:
-            secret = get_secret_value_response['SecretString']
-            print(secret)
-        else:
-            decoded_binary_secret = base64.b64decode(get_secret_value_response['SecretBinary'])
-            print(decoded_binary_secret)
+            raise
 
-if __name__ == '__main__':
-    get_secret()
-###################
-# save this as Dockerfile
-FROM python:3.8-slim
+def lambda_handler(event, context):
+    source_bucket = os.environ['SOURCE_BUCKET']
+    destination_bucket = os.environ['DESTINATION_BUCKET']
+    
+    # Obter todos os prefixos das variáveis de ambiente
+    prefix_keys = [key for key in os.environ.keys() if key.startswith('PREFIX')]
+    prefixes = [os.environ[key] for key in prefix_keys]
 
-WORKDIR /app
+    total_files_copied = 0
+    total_size_copied = 0
+    total_files_skipped = 0
+    total_errors = 0
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+    for prefix in prefixes:
+        logger.info(f"Processing prefix: {prefix}")
+        paginator = s3.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=source_bucket, Prefix=prefix):
+            if 'Contents' not in page:
+                continue
+            for obj in page['Contents']:
+                copy_source = {'Bucket': source_bucket, 'Key': obj['Key']}
+                destination_key = obj['Key']
+                
+                # Verificar se o objeto já existe no bucket de destino
+                if object_exists(destination_bucket, destination_key, obj['Size']):
+                    total_files_skipped += 1
+                    continue
+                
+                # Get the metadata of the object
+                try:
+                    head_response = s3.head_object(Bucket=source_bucket, Key=obj['Key'])
+                except Exception as e:
+                    logger.warning(f"Failed to get metadata for {obj['Key']}: {e}")
+                    total_errors += 1
+                    continue
 
-COPY . .
+                metadata = head_response['Metadata']
+                content_type = head_response.get('ContentType')
+                
+                try:
+                    s3.copy_object(
+                        CopySource=copy_source,
+                        Bucket=destination_bucket,
+                        Key=destination_key,
+                        Metadata=metadata,
+                        MetadataDirective='REPLACE',
+                        ContentType=content_type
+                    )
+                    total_files_copied += 1
+                    total_size_copied += obj['Size']
+                except Exception as e:
+                    logger.warning(f"Failed to copy {obj['Key']} to {destination_key}: {e}")
+                    total_errors += 1
 
-CMD ["python", "./get_secret.py"]
+    logger.warning(f"Total files copied: {total_files_copied}")
+    logger.warning(f"Total size copied: {total_size_copied / (1024 ** 3):.2f} GB")
+    logger.warning(f"Total files skipped: {total_files_skipped}")
+    logger.warning(f"Total errors: {total_errors}")
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Sincronização completa')
+    }
