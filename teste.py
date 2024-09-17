@@ -1,84 +1,64 @@
-import json
 import boto3
-import os
-import logging
+from airflow import DAG
+from airflow.operators.python_operator import PythonOperator
+from datetime import datetime
 
-# Configurar o logger
-logger = logging.getLogger()
-logger.setLevel(logging.WARNING)  # Alterar nível de log para WARNING
+# Função para copiar o arquivo entre buckets
+def copy_s3_file(**kwargs):
+    # Caminhos específicos dos arquivos no bucket local e no bucket cross-account
+    local_bucket = 'nome-do-bucket-local'
+    cross_account_bucket = 'nome-do-bucket-cross-account'
+    source_path = 'caminho/origem/do/arquivo/'  # Exemplo: 'folder1/folder2/file.txt'
+    destination_path = 'caminho/destino/no/bucket/'  # Exemplo: 'folder3/file.txt'
+    file_key = 'file.txt'  # Nome do arquivo
 
-s3 = boto3.client('s3')
-
-def object_exists(bucket, key, size):
-    try:
-        head_response = s3.head_object(Bucket=bucket, Key=key)
-        return head_response['ContentLength'] == size
-    except s3.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == "404":
-            return False
-        else:
-            raise
-
-def lambda_handler(event, context):
-    source_bucket = os.environ['SOURCE_BUCKET']
-    destination_bucket = os.environ['DESTINATION_BUCKET']
+    # Criação do recurso S3
+    s3 = boto3.resource('s3')
     
-    # Obter todos os prefixos das variáveis de ambiente
-    prefix_keys = [key for key in os.environ.keys() if key.startswith('PREFIX')]
-    prefixes = [os.environ[key] for key in prefix_keys]
+    # Objeto no bucket local
+    source_object_key = f'{source_path}{file_key}'
+    # Destino no bucket cross-account
+    destination_object_key = f'{destination_path}{file_key}'
 
-    total_files_copied = 0
-    total_size_copied = 0
-    total_files_skipped = 0
-    total_errors = 0
-
-    for prefix in prefixes:
-        logger.info(f"Processing prefix: {prefix}")
-        paginator = s3.get_paginator('list_objects_v2')
-        for page in paginator.paginate(Bucket=source_bucket, Prefix=prefix):
-            if 'Contents' not in page:
-                continue
-            for obj in page['Contents']:
-                copy_source = {'Bucket': source_bucket, 'Key': obj['Key']}
-                destination_key = obj['Key']
-                
-                # Verificar se o objeto já existe no bucket de destino
-                if object_exists(destination_bucket, destination_key, obj['Size']):
-                    total_files_skipped += 1
-                    continue
-                
-                # Get the metadata of the object
-                try:
-                    head_response = s3.head_object(Bucket=source_bucket, Key=obj['Key'])
-                except Exception as e:
-                    logger.warning(f"Failed to get metadata for {obj['Key']}: {e}")
-                    total_errors += 1
-                    continue
-
-                metadata = head_response['Metadata']
-                content_type = head_response.get('ContentType')
-                
-                try:
-                    s3.copy_object(
-                        CopySource=copy_source,
-                        Bucket=destination_bucket,
-                        Key=destination_key,
-                        Metadata=metadata,
-                        MetadataDirective='REPLACE',
-                        ContentType=content_type
-                    )
-                    total_files_copied += 1
-                    total_size_copied += obj['Size']
-                except Exception as e:
-                    logger.warning(f"Failed to copy {obj['Key']} to {destination_key}: {e}")
-                    total_errors += 1
-
-    logger.warning(f"Total files copied: {total_files_copied}")
-    logger.warning(f"Total size copied: {total_size_copied / (1024 ** 3):.2f} GB")
-    logger.warning(f"Total files skipped: {total_files_skipped}")
-    logger.warning(f"Total errors: {total_errors}")
-
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Sincronização completa')
+    print(f"Tentando copiar o arquivo {file_key} de {local_bucket}/{source_object_key} para {cross_account_bucket}/{destination_object_key}")
+    
+    # Definindo a origem do arquivo
+    copy_source = {
+        'Bucket': local_bucket,
+        'Key': source_object_key
     }
+
+    try:
+        print(f"Verificando se o arquivo existe no bucket de origem: {local_bucket}/{source_object_key}")
+        s3.meta.client.head_object(Bucket=local_bucket, Key=source_object_key)
+        print(f"Arquivo {source_object_key} encontrado no bucket de origem")
+
+        # Tentativa de copiar o arquivo
+        print(f"Iniciando a cópia do arquivo para o bucket cross-account {cross_account_bucket}/{destination_object_key}...")
+        s3.meta.client.copy(
+            copy_source, 
+            cross_account_bucket, 
+            destination_object_key, 
+            ExtraArgs={'RequestPayer': 'requester'}
+        )
+        print(f"Arquivo {file_key} copiado com sucesso para {cross_account_bucket}/{destination_object_key}")
+    
+    except s3.meta.client.exceptions.NoSuchKey as e:
+        print(f"Erro: Arquivo {source_object_key} não encontrado no bucket de origem {local_bucket}.")
+    except Exception as e:
+        print(f"Erro ao copiar o arquivo: {str(e)}")
+
+# Definindo o DAG
+default_args = {
+    'owner': 'airflow',
+    'start_date': datetime(2024, 9, 17),
+}
+
+dag = DAG('copy_s3_file_dag', default_args=default_args, schedule_interval=None)
+
+# Operador Python para executar a função
+copy_task = PythonOperator(
+    task_id='copy_s3_file_task',
+    python_callable=copy_s3_file,
+    dag=dag
+)
