@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Coautores: Wilis Cavalcante
 # Script para listar e deletar todas as AMIs e seus snapshots associados que não precisam ser preservados.
 # Use este script quando não houver necessidade de preservar AMIs, ou seja, todas as AMIs podem ser removidas.
 # O script:
