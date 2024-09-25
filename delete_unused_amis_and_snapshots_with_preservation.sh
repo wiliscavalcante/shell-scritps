@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script para listar e deletar AMIs e seus snapshots associados, preservando itens específicos.
-# Este script deve ser usado quando você deseja **preservar algumas AMIs** e deletar todas as outras.
+# Este script deve ser usado quando você deseja preservar algumas AMIs e deletar todas as outras.
 # O script:
 # 1. Lista todas as AMIs pertencentes à sua conta AWS.
 # 2. Verifica se a AMI está na lista de preservação.
