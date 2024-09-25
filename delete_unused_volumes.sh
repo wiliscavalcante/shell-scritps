@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Coautores: [Seu Nome], ChatGPT
+# Coautores: Wilis Cavalcante
 # Script para listar e deletar volumes EBS disponíveis e não utilizados na AWS.
 # O script:
 # 1. Lista todos os volumes disponíveis (sem uso) na conta AWS.
