@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Coautores: Wilis Cavalcante
 # Script para listar e deletar snapshots EBS não utilizados na AWS.
 # O script:
 # 1. Lista todos os snapshots pertencentes à sua conta AWS.
