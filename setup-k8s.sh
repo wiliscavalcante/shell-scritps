@@ -161,22 +161,22 @@ fi
  
 # Passo 7: Configurar o repositório CRI-O, se necessário
 log "Verificando a configuração do repositório CRI-O"
- 
+
 cri_o_repo_file="/etc/yum.repos.d/cri-o.repo"
-cri_o_expected_baseurl="https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.30/rpm/"
- 
+cri_o_expected_baseurl="https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.31/rpm/"
+
 if [ ! -f "$cri_o_repo_file" ] || ! grep -q "$cri_o_expected_baseurl" "$cri_o_repo_file"; then
   log "Configurando o repositório CRI-O."
   
-  sudo tee "$cri_o_repo_file" > /dev/null << 'EOF'
+  sudo tee "$cri_o_repo_file" > /dev/null << EOF
 [cri-o]
 name=CRI-O
-baseurl=https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.30/rpm/
+baseurl=https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.31/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.30/rpm/repodata/repomd.xml.key
+gpgkey=https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.31/rpm/repodata/repomd.xml.key
 EOF
- 
+
   log "Repositório CRI-O configurado."
 else
   log "Repositório CRI-O já está configurado corretamente."
