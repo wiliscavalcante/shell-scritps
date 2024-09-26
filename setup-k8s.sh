@@ -69,22 +69,36 @@ if free | awk '/^Swap:/ {exit !$2}'; then
 else
   log "Swap já está desativado."
 fi
- 
+
 # Passo 3: Habilitar o encaminhamento de pacotes IPv4, se necessário
 log "Verificando o encaminhamento de pacotes IPv4"
- 
+
 if ! sysctl net.ipv4.ip_forward | grep -q "1"; then
   log "Habilitando net.ipv4.ip_forward"
- 
+
   sudo tee /etc/sysctl.d/k8s.conf > /dev/null << 'EOF'
 net.ipv4.ip_forward = 1
 EOF
- 
+
   sudo sysctl --system
   log "Encaminhamento de pacotes IPv4 habilitado."
 else
   log "Encaminhamento de pacotes IPv4 já está habilitado."
 fi
+
+# Passo 4: Carregar o módulo br_netfilter
+log "Verificando se o módulo br_netfilter está carregado"
+if ! lsmod | grep -q br_netfilter; then
+  log "Carregando o módulo br_netfilter"
+  sudo modprobe br_netfilter
+  
+  # Tornar persistente
+  echo "br_netfilter" | sudo tee /etc/modules-load.d/br_netfilter.conf
+  log "Módulo br_netfilter carregado e configurado para persistência."
+else
+  log "Módulo br_netfilter já está carregado."
+fi
+
  
 # Passo 4: Configurar nameservers em /etc/resolv.conf
 log "Editando /etc/resolv.conf para configurar nameservers"
