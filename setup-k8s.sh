@@ -137,23 +137,23 @@ fi
  
 # Passo 6: Configurar o repositório Kubernetes, se necessário
 log "Verificando a configuração do repositório Kubernetes"
- 
+
 repo_file="/etc/yum.repos.d/kubernetes.repo"
-expected_baseurl="https://pkgs.k8s.io/core:/stable:/v1.30/rpm/"
- 
+expected_baseurl="https://pkgs.k8s.io/core:/stable:/v1.31/rpm/"
+
 if [ ! -f "$repo_file" ] || ! grep -q "$expected_baseurl" "$repo_file"; then
   log "Configurando o repositório Kubernetes."
   
   sudo tee "$repo_file" > /dev/null << 'EOF'
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repodata/repomd.xml.key
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
- 
+
   log "Repositório Kubernetes configurado."
 else
   log "Repositório Kubernetes já está configurado corretamente."
