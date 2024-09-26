@@ -100,12 +100,12 @@ else
 fi
 
  
-# Passo 4: Configurar nameservers em /etc/resolv.conf
+# Passo 5: Configurar nameservers em /etc/resolv.conf
 log "Editando /etc/resolv.conf para configurar nameservers"
  
 if grep -q "^nameserver 127.0.0.1" /etc/resolv.conf; then
-log "Comentando o nameserver 127.0.0.1"
-sudo sed -i.bak 's/^nameserver 127.0.0.1/# &/' /etc/resolv.conf
+  log "Comentando o nameserver 127.0.0.1"
+  sudo sed -i.bak 's/^nameserver 127.0.0.1/# &/' /etc/resolv.conf
 fi
  
 # Adicionar novos nameservers se não estiverem presentes
@@ -118,7 +118,7 @@ done
  
 log "Configuração do /etc/resolv.conf concluída."
  
-# Passo 5: Configurar SELinux para modo permissivo, se necessário
+# Passo 6: Configurar SELinux para modo permissivo, se necessário
 log "Verificando o status do SELinux"
  
 selinux_status=$(getenforce)
