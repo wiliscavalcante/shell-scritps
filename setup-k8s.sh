@@ -599,14 +599,11 @@ log "Habilitando e iniciando o serviço kubelet"
 sudo systemctl enable --now kubelet
 
 # Passo 13: Criar e carregar o script de configuração do proxy do CRI-O no sistema
-log "Criando o arquivo /etc/profile.d/crio-proxy.sh"
 
 if [ ! -f /etc/profile.d/crio-proxy.sh ] || ! grep -q "ativar_proxy_crio" /etc/profile.d/crio-proxy.sh; then
   sudo tee /etc/profile.d/crio-proxy.sh > /dev/null << 'EOF'
 # Função para ativar o proxy no CRI-O
 function ativar_proxy_crio() {
-  log "Ativando proxy no CRI-O"
-  
   sudo mkdir -p /etc/systemd/system/crio.service.d
   
   sudo tee /etc/systemd/system/crio.service.d/proxy.conf > /dev/null << 'EOL'
@@ -618,34 +615,32 @@ EOL
 
   sudo systemctl daemon-reload
   sudo systemctl restart crio
-  log "Proxy ativado no CRI-O"
+  echo "Proxy ativado no CRI-O"
 }
 
 # Função para desativar o proxy no CRI-O
 function desativar_proxy_crio() {
-  log "Desativando proxy no CRI-O"
-
   if [ -f /etc/systemd/system/crio.service.d/proxy.conf ]; then
     sudo rm /etc/systemd/system/crio.service.d/proxy.conf
-    log "Arquivo de proxy removido"
+    echo "Arquivo de proxy removido"
   fi
 
   sudo systemctl daemon-reload
   sudo systemctl restart crio
-  log "Proxy desativado no CRI-O"
+  echo "Proxy desativado no CRI-O"
 }
 EOF
 
   sudo chmod +x /etc/profile.d/crio-proxy.sh
-  log "Arquivo /etc/profile.d/crio-proxy.sh criado e configurado."
+  echo "Arquivo /etc/profile.d/crio-proxy.sh criado e configurado."
 else
-  log "Arquivo /etc/profile.d/crio-proxy.sh já existe e está configurado."
+  echo "Arquivo /etc/profile.d/crio-proxy.sh já existe e está configurado."
 fi
 
 # Verificar se as funções estão carregadas no ambiente
 if ! declare -f ativar_proxy_crio > /dev/null; then
-  log "Carregando o script /etc/profile.d/crio-proxy.sh no ambiente."
+  echo "Carregando o script /etc/profile.d/crio-proxy.sh no ambiente."
   source /etc/profile.d/crio-proxy.sh
 else
-  log "Funções de proxy do CRI-O já estão carregadas no ambiente."
+  echo "Funções de proxy do CRI-O já estão carregadas no ambiente."
 fi
