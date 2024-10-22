@@ -564,25 +564,42 @@ else
 fi
 
 # Passo 11: Instalar o CRI-O
-log "Instalando o CRI-O e configurando para usar o pool ZFS"
+log "Verificando se o CRI-O já está instalado."
 
-sudo dnf install -y cri-o
-sudo systemctl enable crio
-log "CRI-O instalado."
+if rpm -q cri-o > /dev/null 2>&1; then
+  log "CRI-O já está instalado, pulando a instalação."
+else
+  log "Instalando o CRI-O e configurando para usar o pool ZFS"
+  dnf install -y cri-o
+  check_command "Instalar CRI-O"
+  systemctl enable crio
+  check_command "Habilitar CRI-O"
 
-# Configurar o CRI-O para usar o pool ZFS
-sudo tee /etc/crio/crio.conf > /dev/null << EOF
-[crio]
-storage_driver = "zfs"
-storage_option = [
-  "zfs.zpool=crio-pool"
-]
-EOF
+  # Caminho do arquivo de configuração
+  file_path="/etc/crio/crio.conf.d/10-crio.conf"
 
-log "Configuração do CRI-O concluída. Reiniciando o CRI-O."
+  # Conteúdo a ser adicionado
+  config_content="[storage]
+driver = \"overlay\"
+runroot = \"/crio-pool/run/containers/storage\"
+graphroot = \"/crio-pool/lib/containers/storage\""
 
-sudo systemctl restart crio
-log "Serviço CRI-O reiniciado."
+  # Verificar se a configuração já existe no arquivo
+  if grep -q "driver = \"overlay\"" "$file_path"; then
+    log "Configuração já existe no arquivo $file_path"
+  else
+    echo "$config_content" | tee -a "$file_path"
+    check_command "Adicionar configuração ao arquivo $file_path"
+    log "Configuração adicionada ao arquivo $file_path"
+  fi
+
+  log "Configuração do CRI-O concluída. Reiniciando o CRI-O."
+  systemctl daemon-reload
+  check_command "Recarregar daemon do systemd"
+  systemctl restart crio
+  check_command "Reiniciar CRI-O"
+  log "Serviço CRI-O reiniciado."
+fi
 
 # Passo 12: Instalar kubelet, kubeadm e kubectl
 log "Instalando kubelet, kubeadm, e kubectl"
