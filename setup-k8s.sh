@@ -284,15 +284,27 @@ graphroot = \"/crio-pool/lib/containers/storage\""
 fi
 
 # Passo 12: Instalar crictl
-log "Verificando se o crictl já está instalado."
+log "Instalando crictl"
 
-if rpm -q crictl > /dev/null 2>&1; then
-  log "crictl já está instalado, pulando a instalação."
-else
-  log "Instalando o crictl"
-  sudo dnf install -y crictl
-  check_command "Instalar crictl"
+VERSION="v1.31.1"  # Definir a versão correta do crictl
+
+if ! command -v crictl &> /dev/null; then
+  # Baixar e instalar a nova versão
+  wget https://github.com/kubernetes-sigs/cri-tools/releases/download/$VERSION/crictl-$VERSION-linux-amd64.tar.gz
+  sudo tar zxvf crictl-$VERSION-linux-amd64.tar.gz -C /usr/local/bin
+  rm -f crictl-$VERSION-linux-amd64.tar.gz
   log "crictl instalado com sucesso."
+
+  # Criar arquivo de configuração crictl.yaml
+  sudo tee /etc/crictl.yaml > /dev/null << 'EOF'
+runtime-endpoint: unix:///var/run/crio/crio.sock
+image-endpoint: unix:///var/run/crio/crio.sock
+timeout: 10
+debug: false
+EOF
+  log "Configuração crictl.yaml criada."
+else
+  log "crictl já está instalado."
 fi
 
 # Passo 13: Instalar kubelet, kubeadm e kubectl
