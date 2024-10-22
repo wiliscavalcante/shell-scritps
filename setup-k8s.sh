@@ -598,43 +598,54 @@ fi
 log "Habilitando e iniciando o serviço kubelet"
 sudo systemctl enable --now kubelet
 
-# Passo 13: Funções para ativar e desativar o proxy no CRI-O
+# Passo 13: Criar e carregar o script de configuração do proxy do CRI-O no sistema
+log "Criando o arquivo /etc/profile.d/crio-proxy.sh"
 
+if [ ! -f /etc/profile.d/crio-proxy.sh ] || ! grep -q "ativar_proxy_crio" /etc/profile.d/crio-proxy.sh; then
+  sudo tee /etc/profile.d/crio-proxy.sh > /dev/null << 'EOF'
 # Função para ativar o proxy no CRI-O
-ativar_proxy_crio() {
+function ativar_proxy_crio() {
   log "Ativando proxy no CRI-O"
-
-  # Criar diretório de configuração do CRI-O, se não existir
+  
   sudo mkdir -p /etc/systemd/system/crio.service.d
   
-  # Configurar o proxy
-  sudo tee /etc/systemd/system/crio.service.d/proxy.conf > /dev/null << EOF
+  sudo tee /etc/systemd/system/crio.service.d/proxy.conf > /dev/null << 'EOL'
 [Service]
 Environment="HTTP_PROXY=http://proxy.seu_dominio.intranet:3128"
 Environment="HTTPS_PROXY=http://proxy.seu_dominio.intranet:3128"
 Environment="NO_PROXY=localhost,127.0.0.1"
-EOF
+EOL
 
-  # Aplicar e reiniciar o serviço
   sudo systemctl daemon-reload
   sudo systemctl restart crio
-
   log "Proxy ativado no CRI-O"
 }
 
 # Função para desativar o proxy no CRI-O
-desativar_proxy_crio() {
+function desativar_proxy_crio() {
   log "Desativando proxy no CRI-O"
 
-  # Remover o arquivo de configuração do proxy
   if [ -f /etc/systemd/system/crio.service.d/proxy.conf ]; then
     sudo rm /etc/systemd/system/crio.service.d/proxy.conf
     log "Arquivo de proxy removido"
   fi
 
-  # Aplicar as mudanças e reiniciar o serviço
   sudo systemctl daemon-reload
   sudo systemctl restart crio
-
   log "Proxy desativado no CRI-O"
 }
+EOF
+
+  sudo chmod +x /etc/profile.d/crio-proxy.sh
+  log "Arquivo /etc/profile.d/crio-proxy.sh criado e configurado."
+else
+  log "Arquivo /etc/profile.d/crio-proxy.sh já existe e está configurado."
+fi
+
+# Verificar se as funções estão carregadas no ambiente
+if ! declare -f ativar_proxy_crio > /dev/null; then
+  log "Carregando o script /etc/profile.d/crio-proxy.sh no ambiente."
+  source /etc/profile.d/crio-proxy.sh
+else
+  log "Funções de proxy do CRI-O já estão carregadas no ambiente."
+fi
