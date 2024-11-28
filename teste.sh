@@ -1,16 +1,14 @@
 #!/bin/bash
 
-# Nome do node específico
 NODE_NAME="<node-name>"
 
-# Inicializar variáveis
 TOTAL_CPU=0
 TOTAL_MEM=0
 POD_COUNT=0
 
 echo "Calculando a média de uso de CPU e Memória dos pods no node $NODE_NAME..."
 
-# Obter os pods que estão rodando no node específico
+# Obter os pods no node específico
 PODS=$(kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.spec.nodeName=="'"$NODE_NAME"'") | "\(.metadata.namespace) \(.metadata.name)"')
 
 if [ -z "$PODS" ]; then
@@ -18,12 +16,17 @@ if [ -z "$PODS" ]; then
     exit 1
 fi
 
-# Iterar sobre cada pod no node
 echo "$PODS" | while read NAMESPACE POD; do
-    # Obter o uso de CPU e Memória do pod
+    # Debug: Mostra quais pods estão sendo processados
+    echo "Processando pod: $POD no namespace: $NAMESPACE"
+
+    # Obter o uso de CPU e Memória
     USAGE=$(kubectl top pod $POD -n $NAMESPACE --no-headers 2>/dev/null | awk '{print $2, $3}')
     CPU=$(echo $USAGE | awk '{print $1}' | sed 's/m//') # CPU em millicores
     MEM=$(echo $USAGE | awk '{print $2}' | sed 's/Mi//') # Memória em MiB
+
+    # Debug: Exibir métricas coletadas
+    echo "CPU: $CPU, MEM: $MEM"
 
     if [ -n "$CPU" ] && [ -n "$MEM" ]; then
         TOTAL_CPU=$((TOTAL_CPU + CPU))
