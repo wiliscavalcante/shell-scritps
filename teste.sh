@@ -1,1 +1,2 @@
 kubectl top pod --all-namespaces --no-headers | awk '{cpu[$2]+=$3; mem[$2]+=$4; count[$2]++} END {for (node in cpu) printf "Node: %s, Média de CPU: %.2fm, Média de Memória: %.2fMi\n", node, cpu[node]/count[node], mem[node]/count[node]}'
+kubectl top pod --all-namespaces --no-headers | awk '{cpu[$2]+=$3; mem[$2]+=$4; count[$2]++} END {for (node in cpu) printf "Node: %s, Total de Pods: %d, Média de CPU: %.2fm, Média de Memória: %.2fMi\n", node, count[node], cpu[node]/count[node], mem[node]/count[node]}'
