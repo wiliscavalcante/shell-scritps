@@ -33,9 +33,9 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          echo "🔹 Iniciando DaemonSet de configuração do EKS..."
+          echo "🔹 Iniciando DaemonSet de Fix de Nexus no EKS..."
           
-          CONFIG_MARKER="/host/etc/config-applied"
+          CONFIG_MARKER="/host/etc/nexus-configured"
  
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
@@ -44,45 +44,21 @@ spec:
  
           echo "🚀 FORÇANDO RECONFIGURAÇÃO! (FORCE_RECONFIGURE=$FORCE_RECONFIGURE)"
           
-          echo "🔹 Etapa 1: Aplicando variáveis de ambiente..."
-          chroot /host /bin/sh -c """
+          echo "🔹 Etapa 1: Atualizando NO_PROXY..."
+          chroot /host /bin/sh -c '
           ENV_FILE="/etc/environment"
-          CONFIG_MAP_DIR="/env-config"
-          
-          for VAR in $(ls $CONFIG_MAP_DIR); do
-              VALUE=$(cat "$CONFIG_MAP_DIR/$VAR")
-              
-              if ! grep -q "^$VAR=" "$ENV_FILE"; then
-                  echo "$VAR=\"$VALUE\"" >> "$ENV_FILE"
-                  echo "✅ Criada variável: $VAR=\"$VALUE\""
-                  continue
-              fi
-              
-              if [ "$VAR" = "NO_PROXY" ] || [ "$VAR" = "no_proxy" ]; then
-                  CURRENT_VALUE=$(grep "^$VAR=" "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
-                  
-                  if echo "$CURRENT_VALUE" | grep -q "$VALUE"; then
-                      echo "🔹 Valor '$VALUE' já presente em $VAR. Nenhuma alteração necessária."
-                  else
-                      NEW_VALUE="$CURRENT_VALUE,$VALUE"
-                      NEW_VALUE=$(echo "$NEW_VALUE" | sed 's/^,//;s/,,/,/')
-                      sed -i "s|^$VAR=.*|$VAR=\"$NEW_VALUE\"|" "$ENV_FILE"
-                      echo "✅ Incrementado valor em $VAR: $(grep "^$VAR=" $ENV_FILE)"
-                  fi
-                  continue
-              fi
-              
-              sed -i "s|^$VAR=.*|$VAR=\"$VALUE\"|" "$ENV_FILE"
-              echo "✅ Substituído valor de $VAR: $(grep "^$VAR=" $ENV_FILE)"
-          done
-          
-          source \"\$ENV_FILE\"""
+          NEXUS_DOMAIN=".agribusiness-brain.us.experian.eeca"
+ 
+          if ! grep -q "$NEXUS_DOMAIN" "$ENV_FILE"; then
+              sed -i "/NO_PROXY=/ s|$|,$NEXUS_DOMAIN|" "$ENV_FILE"
+              sed -i "/no_proxy=/ s|$|,$NEXUS_DOMAIN|" "$ENV_FILE"
+          fi
+          source "$ENV_FILE"
+          echo "✅ NO_PROXY atualizado: $(grep NO_PROXY $ENV_FILE)"
           '
-          
-          echo "✅ Variáveis aplicadas com sucesso!"
-
-          echo "🔹 Etapa 2: Copiando certificados..."
-          if [ "$(ls /certs | wc -l)" -eq 0 ]; then
+ 
+          echo "🔹 Etapa 2: Copiando certificados do Nexus..."
+          if [ "$(ls -A /certs | wc -l)" -eq 0 ]; then
             echo "❌ ERRO: Nenhum certificado encontrado no pod!"
             exit 1
           fi
@@ -94,7 +70,7 @@ spec:
           echo "✅ Certificados instalados e atualizados!"
  
           echo "🔹 Etapa 3: Reiniciando containerd..."
-          chroot /host /bin/sh -c """
+          chroot /host /bin/sh -c '
           if command -v systemctl &> /dev/null; then
               systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
           fi
@@ -103,7 +79,7 @@ spec:
           '
  
           if [ "$FORCE_RECONFIGURE" = "false" ]; then
-            touch /host/etc/config-applied
+            touch /host/etc/nexus-configured
           fi
  
           echo "✅ Configuração finalizada!"
