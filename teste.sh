@@ -44,45 +44,42 @@ spec:
  
           echo "🚀 FORÇANDO RECONFIGURAÇÃO! (FORCE_RECONFIGURE=$FORCE_RECONFIGURE)"
           
-          echo "🔹 Etapa 1: Atualizando NO_PROXY..."
+          echo "🔹 Etapa 1: Aplicando variáveis de ambiente..."
           chroot /host /bin/sh -c '
           ENV_FILE="/etc/environment"
-          NEXUS_DOMAIN=".agribusiness-brain.us.experian.eeca"
- 
-          if ! grep -q "$NEXUS_DOMAIN" "$ENV_FILE"; then
-              sed -i "/NO_PROXY=/ s|$|,$NEXUS_DOMAIN|" "$ENV_FILE"
-              sed -i "/no_proxy=/ s|$|,$NEXUS_DOMAIN|" "$ENV_FILE"
-          fi
-          source "$ENV_FILE"
-          echo "✅ NO_PROXY atualizado: $(grep NO_PROXY $ENV_FILE)"
-          '
- 
-          echo "🔹 Etapa 2: Copiando certificados..."
-          if [ "$(ls /certs | wc -l)" -eq 0 ]; then
-            echo "❌ ERRO: Nenhum certificado encontrado no pod!"
-            exit 1
-          fi
- 
-          mkdir -p /host/etc/pki/ca-trust/source/anchors/
-          cp /certs/* /host/etc/pki/ca-trust/source/anchors/
- 
-          chroot /host update-ca-trust extract
-          echo "✅ Certificados instalados e atualizados!"
- 
-          echo "🔹 Etapa 3: Reiniciando containerd..."
-          chroot /host /bin/sh -c '
-          if command -v systemctl &> /dev/null; then
-              systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
-          fi
+          CONFIG_MAP_DIR="/env-config"
           
-          kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
+          for VAR in $(ls $CONFIG_MAP_DIR); do
+              VALUE=$(cat "$CONFIG_MAP_DIR/$VAR")
+              
+              if ! grep -q "^$VAR=" "$ENV_FILE"; then
+                  echo "$VAR=\"$VALUE\"" >> "$ENV_FILE"
+                  echo "✅ Criada variável: $VAR=\"$VALUE\""
+                  continue
+              fi
+              
+              if [ "$VAR" = "NO_PROXY" ] || [ "$VAR" = "no_proxy" ]; then
+                  CURRENT_VALUE=$(grep "^$VAR=" "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
+                  
+                  if echo "$CURRENT_VALUE" | grep -q "$VALUE"; then
+                      echo "🔹 Valor '$VALUE' já presente em $VAR. Nenhuma alteração necessária."
+                  else
+                      NEW_VALUE="$CURRENT_VALUE,$VALUE"
+                      NEW_VALUE=$(echo "$NEW_VALUE" | sed 's/^,//;s/,,/,/')
+                      sed -i "s|^$VAR=.*|$VAR=\"$NEW_VALUE\"|" "$ENV_FILE"
+                      echo "✅ Incrementado valor em $VAR: $(grep "^$VAR=" $ENV_FILE)"
+                  fi
+                  continue
+              fi
+              
+              sed -i "s|^$VAR=.*|$VAR=\"$VALUE\"|" "$ENV_FILE"
+              echo "✅ Substituído valor de $VAR: $(grep "^$VAR=" $ENV_FILE)"
+          done
+          
+          source "$ENV_FILE"
           '
- 
-          if [ "$FORCE_RECONFIGURE" = "false" ]; then
-            touch /host/etc/config-applied
-          fi
- 
-          echo "✅ Configuração finalizada!"
+          
+          echo "✅ Variáveis aplicadas com sucesso!"
  
           while true; do sleep 3600; done
         volumeMounts:
@@ -90,6 +87,9 @@ spec:
           mountPath: /host
         - name: certs
           mountPath: /certs
+        - name: env-config
+          mountPath: /env-config
+          readOnly: true
       volumes:
       - name: host-root
         hostPath:
@@ -97,5 +97,20 @@ spec:
       - name: certs
         configMap:
           name: certs-config
+      - name: env-config
+        configMap:
+          name: env-config
       hostNetwork: true
       hostPID: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: env-config
+  namespace: kube-system
+data:
+  NO_PROXY: "newdomain.com"
+  no_proxy: "anotherdomain.com"
+  HTTP_PROXY: "http://proxy.example.com:8080"
+  EXISTING_VAR: "new_value"
+  NEW_VAR: "created_value"
