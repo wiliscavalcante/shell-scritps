@@ -80,6 +80,33 @@ spec:
           '
           
           echo "✅ Variáveis aplicadas com sucesso!"
+
+          echo "🔹 Etapa 2: Copiando certificados..."
+          if [ "$(ls /certs | wc -l)" -eq 0 ]; then
+            echo "❌ ERRO: Nenhum certificado encontrado no pod!"
+            exit 1
+          fi
+ 
+          mkdir -p /host/etc/pki/ca-trust/source/anchors/
+          cp /certs/* /host/etc/pki/ca-trust/source/anchors/
+ 
+          chroot /host update-ca-trust extract
+          echo "✅ Certificados instalados e atualizados!"
+ 
+          echo "🔹 Etapa 3: Reiniciando containerd..."
+          chroot /host /bin/sh -c '
+          if command -v systemctl &> /dev/null; then
+              systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
+          fi
+          
+          kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
+          '
+ 
+          if [ "$FORCE_RECONFIGURE" = "false" ]; then
+            touch /host/etc/config-applied
+          fi
+ 
+          echo "✅ Configuração finalizada!"
  
           while true; do sleep 3600; done
         volumeMounts:
@@ -102,15 +129,3 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: env-config
-  namespace: kube-system
-data:
-  NO_PROXY: "newdomain.com"
-  no_proxy: "anotherdomain.com"
-  HTTP_PROXY: "http://proxy.example.com:8080"
-  EXISTING_VAR: "new_value"
-  NEW_VAR: "created_value"
