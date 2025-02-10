@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: fix-nexus-config
+  name: eks-node-config-agent
   namespace: kube-system
 spec:
   selector:
     matchLabels:
-      name: fix-nexus-config
+      name: eks-node-config-agent
   template:
     metadata:
       labels:
-        name: fix-nexus-config
+        name: eks-node-config-agent
     spec:
       tolerations:
       - key: "dedicated"
@@ -22,7 +22,7 @@ spec:
       - key: "node-role.kubernetes.io/master"
         effect: "NoSchedule"
       containers:
-      - name: fix-nexus
+      - name: node-config-agent
         image: amazonlinux:latest
         imagePullPolicy: Always
         securityContext:
@@ -33,9 +33,9 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          echo "🔹 Iniciando DaemonSet de Fix de Nexus no EKS..."
+          echo "🔹 Iniciando DaemonSet de configuração do EKS..."
           
-          CONFIG_MARKER="/host/etc/nexus-configured"
+          CONFIG_MARKER="/host/etc/config-applied"
  
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
@@ -57,17 +57,17 @@ spec:
           echo "✅ NO_PROXY atualizado: $(grep NO_PROXY $ENV_FILE)"
           '
  
-          echo "🔹 Etapa 2: Copiando certificado do Nexus..."
-          if [ ! -f "/certs/nexus-ca.crt" ]; then
-            echo "❌ ERRO: Certificado não encontrado no pod!"
+          echo "🔹 Etapa 2: Copiando certificados..."
+          if [ "$(ls /certs | wc -l)" -eq 0 ]; then
+            echo "❌ ERRO: Nenhum certificado encontrado no pod!"
             exit 1
           fi
  
           mkdir -p /host/etc/pki/ca-trust/source/anchors/
-          cp /certs/nexus-ca.crt /host/etc/pki/ca-trust/source/anchors/
+          cp /certs/* /host/etc/pki/ca-trust/source/anchors/
  
           chroot /host update-ca-trust extract
-          echo "✅ Certificado instalado e atualizado!"
+          echo "✅ Certificados instalados e atualizados!"
  
           echo "🔹 Etapa 3: Reiniciando containerd..."
           chroot /host /bin/sh -c '
@@ -79,7 +79,7 @@ spec:
           '
  
           if [ "$FORCE_RECONFIGURE" = "false" ]; then
-            touch /host/etc/nexus-configured
+            touch /host/etc/config-applied
           fi
  
           echo "✅ Configuração finalizada!"
@@ -96,6 +96,6 @@ spec:
           path: /
       - name: certs
         configMap:
-          name: nexus-cert
+          name: certs-config
       hostNetwork: true
       hostPID: true
