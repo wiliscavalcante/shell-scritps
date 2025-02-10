@@ -54,10 +54,7 @@ spec:
               exit 1
           fi
  
-          awk "/:/ {print \$1}" "$CONFIG_FILE" | sed "s/://g" | while read -r VAR_NAME; do
-              MODE=$(awk -v var="$VAR_NAME" "/^$VAR_NAME:/,/mode:/ {if (\$1 == \"mode:\") print \$2}" "$CONFIG_FILE" | tr -d '"')
-              VALUE=$(awk -v var="$VAR_NAME" "/^$VAR_NAME:/,/value:/ {if (\$1 == \"value:\") print \$2}" "$CONFIG_FILE" | tr -d '"')
- 
+          awk "/^[a-zA-Z_]+:$/ {var=$1; sub(":", "", var); getline; mode=$2; getline; value=$2; gsub("\"", "", value); print var, mode, value;}" "$CONFIG_FILE" | while read -r VAR_NAME MODE VALUE; do
               if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
                   echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
                   continue
