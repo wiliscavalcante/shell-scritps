@@ -39,13 +39,13 @@ spec:
  
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
-            while true; do sleep 3600; done
+            exec sleep infinity
           fi
  
           echo "🚀 FORÇANDO RECONFIGURAÇÃO! (FORCE_RECONFIGURE=$FORCE_RECONFIGURE)"
           
           echo "🔹 Etapa 1: Aplicando variáveis de ambiente..."
-          chroot /host /bin/sh -c '
+          chroot /host /bin/sh -c """
           ENV_FILE="/etc/environment"
           CONFIG_MAP_DIR="/env-config"
           
@@ -76,7 +76,7 @@ spec:
               echo "✅ Substituído valor de $VAR: $(grep "^$VAR=" $ENV_FILE)"
           done
           
-          source "$ENV_FILE"
+          source \"\$ENV_FILE\"""
           '
           
           echo "✅ Variáveis aplicadas com sucesso!"
@@ -94,7 +94,7 @@ spec:
           echo "✅ Certificados instalados e atualizados!"
  
           echo "🔹 Etapa 3: Reiniciando containerd..."
-          chroot /host /bin/sh -c '
+          chroot /host /bin/sh -c """
           if command -v systemctl &> /dev/null; then
               systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
           fi
@@ -108,7 +108,7 @@ spec:
  
           echo "✅ Configuração finalizada!"
  
-          while true; do sleep 3600; done
+          exec sleep infinity
         volumeMounts:
         - name: host-root
           mountPath: /host
