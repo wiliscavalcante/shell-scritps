@@ -35,8 +35,9 @@ spec:
         - |
           echo "🔹 Iniciando EKS Node Config Agent..."
 
-          CONFIG_MARKER="/host/etc/eks-node-configured"
+          CONFIG_MARKER="/host/etc/node-config-applied"
 
+          # Se já estiver configurado e não forçar, mantém o pod rodando sem fazer nada
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
             sleep infinity
@@ -55,30 +56,42 @@ spec:
               touch "$ENV_FILE"
           fi
 
-          # Itera sobre as variáveis definidas no ConfigMap montado
-          while IFS="=" read -r VAR_NAME VALUE; do
-              if [ -z "$VAR_NAME" ] || [ -z "$VALUE" ]; then
-                  echo "❌ Variável sem valor. Pulando..."
-                  continue
-              fi
+          # Se o arquivo de variáveis não existir, pula a etapa
+          if [ ! -f "/env-config/variables.yaml" ]; then
+              echo "❌ Arquivo de variáveis não encontrado. Pulando..."
+          else
+              # Itera sobre as variáveis definidas no ConfigMap montado
+              yq e ". | to_entries | .[]" /env-config/variables.yaml | while read entry; do
+                  VAR_NAME=$(echo "$entry" | yq e ".key" -)
+                  MODE=$(echo "$entry" | yq e ".value.mode" -)
+                  VALUE=$(echo "$entry" | yq e ".value.value" -)
 
-              # Determina se é uma variável que suporta múltiplos valores (incremento)
-              case "$VAR_NAME" in
-                  NO_PROXY|no_proxy|PATH|LD_LIBRARY_PATH)
-                      echo "🔹 Incrementando $VAR_NAME com valor: $VALUE"
-                      if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
-                          sed -i "/^$VAR_NAME=/ s|$|,$VALUE|" "$ENV_FILE"
-                      else
+                  if [ -z "$VAR_NAME" ] || [ -z "$VALUE" ]; then
+                      echo "❌ Variável sem valor. Pulando..."
+                      continue
+                  fi
+
+                  # Determina se deve incrementar ou substituir o valor
+                  case "$MODE" in
+                      append)
+                          echo "🔹 Incrementando $VAR_NAME com valor: $VALUE"
+                          if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                              sed -i "/^$VAR_NAME=/ s|$|,$VALUE|" "$ENV_FILE"
+                          else
+                              echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
+                          fi
+                          ;;
+                      overwrite)
+                          echo "🔹 Substituindo $VAR_NAME por: $VALUE"
+                          sed -i "/^$VAR_NAME=/d" "$ENV_FILE"
                           echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
-                      fi
-                      ;;
-                  *)
-                      echo "🔹 Criando ou substituindo variável única: $VAR_NAME=$VALUE"
-                      sed -i "/^$VAR_NAME=/d" "$ENV_FILE"
-                      echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
-                      ;;
-              esac
-          done < /env-config/variables.list
+                          ;;
+                      *)
+                          echo "❌ Modo inválido ($MODE) para variável $VAR_NAME. Pulando..."
+                          ;;
+                  esac
+              done
+          fi
 
           # Aplica as variáveis no ambiente
           source "$ENV_FILE"
@@ -89,14 +102,14 @@ spec:
           echo "🔹 Etapa 2: Copiando Certificados..."
           CERT_DIR="/host/etc/pki/ca-trust/source/anchors"
           mkdir -p "$CERT_DIR"
-          cp /certs/*.crt "$CERT_DIR/"
+          cp /certs/*.crt "$CERT_DIR/" 2>/dev/null || echo "❌ Nenhum certificado encontrado para copiar."
 
-          chroot /host update-ca-trust extract
+          chroot /host update-ca-trust
           echo "✅ Certificados instalados e atualizados!"
 
           ## Etapa 3: Reiniciando containerd
           echo "🔹 Etapa 3: Reiniciando containerd..."
-          chroot /host /bin/sh -c '
+          chroot /host /bin/bash -c '
           if command -v systemctl &> /dev/null; then
               systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
           fi
@@ -104,12 +117,12 @@ spec:
           kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
           '
 
+          # Marca a configuração como aplicada
           if [ "$FORCE_RECONFIGURE" = "false" ]; then
-            touch /host/etc/eks-node-configured
+            touch /host/etc/node-config-applied
           fi
 
           echo "✅ Configuração finalizada!"
-          
           sleep infinity
         volumeMounts:
         - name: host-root
@@ -118,6 +131,7 @@ spec:
           mountPath: /certs
         - name: env-config
           mountPath: /env-config
+          readOnly: true
       volumes:
       - name: host-root
         hostPath:
