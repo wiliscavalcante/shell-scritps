@@ -45,18 +45,18 @@ spec:
           echo "🚀 FORÇANDO RECONFIGURAÇÃO! (FORCE_RECONFIGURE=$FORCE_RECONFIGURE)"
           
           echo "🔹 Etapa 1: Aplicando variáveis de ambiente do ConfigMap..."
-          chroot /host /bin/sh -c '
-          ENV_FILE="/etc/environment"
-          CONFIG_FILE="/host/env-config/variables.yaml"
+          chroot /host /bin/sh -c "
+          ENV_FILE='/etc/environment'
+          CONFIG_FILE='/host/env-config/variables.yaml'
  
           if [ ! -f "$CONFIG_FILE" ]; then
               echo "❌ ERRO: Arquivo de configuração não encontrado: $CONFIG_FILE"
               exit 1
           fi
  
-          awk "/:/ {print \$1}" "$CONFIG_FILE" | sed "s/://g" | while read -r VAR_NAME; do
-              MODE=$(awk "/$VAR_NAME:/,/mode:/ {if (\$1 == \"mode:\") print \$2}" "$CONFIG_FILE")
-              VALUE=$(awk "/$VAR_NAME:/,/value:/ {if (\$1 == \"value:\") print \$2}" "$CONFIG_FILE")
+          awk '/:/ {print $1}' "$CONFIG_FILE" | sed 's/://' | while read -r VAR_NAME; do
+              MODE=$(awk -v var="$VAR_NAME" '/^'"$VAR_NAME"':/,/mode:/ {if ($1 == "mode:") print $2}' "$CONFIG_FILE")
+              VALUE=$(awk -v var="$VAR_NAME" '/^'"$VAR_NAME"':/,/value:/ {if ($1 == "value:") print $2}' "$CONFIG_FILE")
  
               if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
                   echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
@@ -93,7 +93,7 @@ spec:
  
           source "$ENV_FILE"
           echo "✅ Todas as variáveis aplicadas com sucesso!"
-          '
+          "
  
           echo "🔹 Etapa 2: Copiando certificados do Nexus..."
           if [ "$(ls -A /certs | wc -l)" -eq 0 ]; then
@@ -108,13 +108,13 @@ spec:
           echo "✅ Certificados instalados e atualizados!"
  
           echo "🔹 Etapa 3: Reiniciando containerd..."
-          chroot /host /bin/sh -c '
+          chroot /host /bin/sh -c "
           if command -v systemctl &> /dev/null; then
               systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
           fi
           
           kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
-          '
+          "
  
           if [ "$FORCE_RECONFIGURE" = "false" ]; then
             touch /host/etc/nexus-configured
