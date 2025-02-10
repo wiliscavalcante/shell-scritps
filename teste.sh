@@ -144,3 +144,61 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
+      ---
+      echo "🔹 Aplicando variáveis de ambiente do ConfigMap..."
+
+chroot /host /bin/sh -c '
+ENV_FILE="/etc/environment"
+CONFIG_FILE="/host/env-config/variables.yaml"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "❌ ERRO: Arquivo de configuração não encontrado: $CONFIG_FILE"
+    exit 1
+fi
+
+# Extrai todas as variáveis definidas no YAML
+awk "/:/ {print \$1}" "$CONFIG_FILE" | sed "s/://g" | while read -r VAR_NAME; do
+    MODE=$(awk -v var="$VAR_NAME" "/^$VAR_NAME:/,/mode:/ {if (\$1 == \"mode:\") print \$2}" "$CONFIG_FILE" | tr -d '\"')
+    VALUE=$(awk -v var="$VAR_NAME" "/^$VAR_NAME:/,/value:/ {if (\$1 == \"value:\") print \$2}" "$CONFIG_FILE" | tr -d '\"')
+
+    if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
+        echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
+        continue
+    fi
+
+    if [ "$MODE" = "overwrite" ]; then
+        # Sobrescreve ou cria a variável
+        if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+            sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$VALUE\"|" "$ENV_FILE"
+            echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+        else
+            echo "$VAR_NAME=\"$VALUE\"" >> "$ENV_FILE"
+            echo "✅ Criada variável: $VAR_NAME=\"$VALUE\""
+        fi
+
+    elif [ "$MODE" = "append" ]; then
+        # Incrementa valores sem remover os existentes
+        if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+            CURRENT_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
+
+            if echo "$CURRENT_VALUE" | grep -q "$VALUE"; then
+                echo "🔹 Valor '$VALUE' já presente em $VAR_NAME. Nenhuma alteração necessária."
+            else
+                NEW_VALUE="$CURRENT_VALUE,$VALUE"
+                NEW_VALUE=$(echo "$NEW_VALUE" | sed 's/^,//;s/,,/,/') # Remove múltiplas vírgulas
+                sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$NEW_VALUE\"|" "$ENV_FILE"
+                echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+            fi
+        else
+            echo "$VAR_NAME=\"$VALUE\"" >> "$ENV_FILE"
+            echo "✅ Criada variável: $VAR_NAME=\"$VALUE\""
+        fi
+    else
+        echo "❌ ERRO: Modo inválido para $VAR_NAME: $MODE"
+    fi
+done
+
+source "$ENV_FILE"
+echo "✅ Todas as variáveis aplicadas com sucesso!"
+'
+
