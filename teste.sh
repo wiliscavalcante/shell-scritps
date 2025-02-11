@@ -169,31 +169,37 @@ spec:
           
           CONFIG_MARKER="/host/etc/nexus-configured"
           ENV_FILE="/etc/environment"
-          CONFIG_DIR="/host/env-config"
+          CONFIG_DIR="/env-config"
 
+          # Aguarda a montagem do ConfigMap
+          while [ ! -d "$CONFIG_DIR" ]; do
+              echo "⏳ Aguardando montagem do ConfigMap..."
+              sleep 5
+          done
+ 
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
             exec sleep infinity
           fi
-
+ 
           echo "🚀 Aplicando variáveis de ambiente do ConfigMap..."
-
+ 
           chroot /host /bin/sh -c '
           if [ ! -d "$CONFIG_DIR" ]; then
               echo "❌ ERRO: Diretório de configuração não encontrado: $CONFIG_DIR"
               exit 1
           fi
-
+ 
           for VAR_FILE in $(ls "$CONFIG_DIR"); do
               VAR_NAME="$VAR_FILE"
               MODE=$(awk -F": " "/mode:/ {print \$2}" "$CONFIG_DIR/$VAR_FILE")
               VALUE=$(awk -F": " "/value:/ {print \$2}" "$CONFIG_DIR/$VAR_FILE")
-
+ 
               if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
                   echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
                   continue
               fi
-
+ 
               if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
                   if [ "$MODE" = "append" ]; then
                       sed -i "/^$VAR_NAME=/ s|\$|,$VALUE|" "$ENV_FILE"
@@ -208,23 +214,23 @@ spec:
                   echo "✅ Criada nova variável: $VAR_NAME=\"$VALUE\""
               fi
           done
-
+ 
           source "$ENV_FILE"
           echo "✅ Todas as variáveis aplicadas com sucesso!"
           '
-
+ 
           echo "🔹 Etapa 2: Copiando certificados do Nexus..."
           if [ "$(ls -A /certs | wc -l)" -eq 0 ]; then
             echo "❌ ERRO: Nenhum certificado encontrado no pod!"
             exit 1
           fi
-
+ 
           mkdir -p /host/etc/pki/ca-trust/source/anchors/
           cp /certs/* /host/etc/pki/ca-trust/source/anchors/
-
+ 
           chroot /host update-ca-trust extract
           echo "✅ Certificados instalados e atualizados!"
-
+ 
           echo "🔹 Etapa 3: Reiniciando containerd..."
           chroot /host /bin/sh -c '
           if command -v systemctl &> /dev/null; then
@@ -233,13 +239,13 @@ spec:
           
           kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
           '
-
+ 
           if [ "$FORCE_RECONFIGURE" = "false" ]; then
             touch /host/etc/nexus-configured
           fi
-
+ 
           echo "✅ Configuração finalizada!"
-
+ 
           exec sleep infinity
         volumeMounts:
         - name: host-root
@@ -247,7 +253,7 @@ spec:
         - name: certs
           mountPath: /certs
         - name: env-config
-          mountPath: /host/env-config
+          mountPath: /env-config
           readOnly: true
       volumes:
       - name: host-root
@@ -261,15 +267,3 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
----
-chroot /host /bin/sh -c '
-CONFIG_DIR="/env-config"
-for VAR_FILE in $(ls "$CONFIG_DIR"); do
-    VAR_NAME="$VAR_FILE"
-    MODE=$(awk -F": " "/mode:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
-    VALUE=$(awk -F": " "/value:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
-
-    echo "VAR: $VAR_NAME | MODE: $MODE | VALUE: $VALUE"
-done
-'
-
