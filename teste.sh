@@ -170,12 +170,6 @@ spec:
           CONFIG_MARKER="/host/etc/nexus-configured"
           ENV_FILE="/etc/environment"
           CONFIG_DIR="/env-config"
-
-          # Aguarda a montagem do ConfigMap
-          while [ ! -d "$CONFIG_DIR" ]; do
-              echo "⏳ Aguardando montagem do ConfigMap..."
-              sleep 5
-          done
  
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
@@ -185,10 +179,8 @@ spec:
           echo "🚀 Aplicando variáveis de ambiente do ConfigMap..."
  
           chroot /host /bin/sh -c '
-          if [ ! -d "$CONFIG_DIR" ]; then
-              echo "❌ ERRO: Diretório de configuração não encontrado: $CONFIG_DIR"
-              exit 1
-          fi
+          ENV_FILE="/etc/environment"
+          CONFIG_DIR="/env-config"
  
           for VAR_FILE in $(ls "$CONFIG_DIR"); do
               VAR_NAME="$VAR_FILE"
@@ -267,6 +259,7 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
+
 ---
 kubectl exec -it <nome-do-pod> -n kube-system -- chroot /host /bin/sh -c '
 ENV_FILE="/etc/environment"
