@@ -47,14 +47,13 @@ spec:
           echo "🔹 Etapa 1: Aplicando variáveis de ambiente do ConfigMap..."
           chroot /host /bin/sh -c '
           ENV_FILE="/etc/environment"
-          CONFIG_FILE="/host/env-config/variables.yaml"
+          CONFIG_DIR="/host/env-config"
  
-          if [ ! -f "$CONFIG_FILE" ]; then
-              echo "❌ ERRO: Arquivo de configuração não encontrado: $CONFIG_FILE"
-              exit 1
-          fi
+          for VAR_FILE in $(ls "$CONFIG_DIR"); do
+              VAR_NAME="$VAR_FILE"
+              MODE=$(awk -F": " "/mode:/ {print \$2}" "$CONFIG_DIR/$VAR_FILE")
+              VALUE=$(awk -F": " "/value:/ {print \$2}" "$CONFIG_DIR/$VAR_FILE")
  
-          awk "/^[a-zA-Z_]+:$/ {var=$1; sub(":", "", var); getline; mode=$2; getline; value=$2; gsub("\"", "", value); print var, mode, value;}" "$CONFIG_FILE" | while read -r VAR_NAME MODE VALUE; do
               if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
                   echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
                   continue
@@ -66,7 +65,7 @@ spec:
                       echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
                   else
                       echo "$VAR_NAME=\"$VALUE\"" >> "$ENV_FILE"
-                      echo "✅ Criada variável: $VAR_NAME=\"$VALUE\""
+                      echo "✅ Criada nova variável: $VAR_NAME=\"$VALUE\""
                   fi
               elif [ "$MODE" = "append" ]; then
                   if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
@@ -81,7 +80,7 @@ spec:
                       fi
                   else
                       echo "$VAR_NAME=\"$VALUE\"" >> "$ENV_FILE"
-                      echo "✅ Criada variável: $VAR_NAME=\"$VALUE\""
+                      echo "✅ Criada nova variável com incremento: $VAR_NAME=\"$VALUE\""
                   fi
               else
                   echo "❌ ERRO: Modo inválido para $VAR_NAME: $MODE"
