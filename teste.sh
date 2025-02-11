@@ -136,8 +136,8 @@ CONFIG_DIR="/env-config"
 
 for VAR_FILE in $(ls "$CONFIG_DIR"); do
     VAR_NAME="$VAR_FILE"
-    MODE=$(grep "mode:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ')  # Remove espaços extras
-    VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"') # Remove aspas extras
+    MODE=$(grep "mode:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ')
+    VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
 
     if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
         echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
@@ -146,7 +146,11 @@ for VAR_FILE in $(ls "$CONFIG_DIR"); do
 
     if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
         if [ "$MODE" = "append" ]; then
-            if grep -q ",$VALUE" "$ENV_FILE"; then
+            # Verifica corretamente se o valor já está presente
+            EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
+            
+            # Se o valor ainda não está presente, adicionamos corretamente
+            if echo "$EXISTING_VALUE" | grep -q -w "$VALUE"; then
                 echo "🔹 Valor '$VALUE' já presente em $VAR_NAME. Nenhuma alteração necessária."
             else
                 sed -i "/^$VAR_NAME=/ s|\$|,$VALUE|" "$ENV_FILE"
