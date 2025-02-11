@@ -202,16 +202,45 @@ spec:
  
               if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
                   if [ "$MODE" = "append" ]; then
-                      sed -i "/^$VAR_NAME=/ s|\$|,$VALUE|" "$ENV_FILE"
-                      sed -i "s|,,|,|g" "$ENV_FILE" # Remove múltiplas vírgulas
+                      CURRENT_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
+                      
+                      # Se a variável já tem valor, adiciona uma vírgula antes
+                      if [ -n "$CURRENT_VALUE" ]; then
+                          NEW_VALUE="$CURRENT_VALUE,$VALUE"
+                      else
+                          NEW_VALUE="$VALUE"  # Se estava vazia, não adiciona vírgula
+                      fi
+                      
+                      # Aplica a regra correta de aspas
+                      if [[ "$NEW_VALUE" =~ \  ]]; then
+                          FORMATTED_VALUE="\"$NEW_VALUE\""
+                      else
+                          FORMATTED_VALUE="$NEW_VALUE"
+                      fi
+                      
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$FORMATTED_VALUE|" "$ENV_FILE"
                       echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
                   else
-                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$VALUE\"|" "$ENV_FILE"
+                      # Aplica a regra correta de aspas
+                      if [[ "$VALUE" =~ \  ]]; then
+                          FORMATTED_VALUE="\"$VALUE\""
+                      else
+                          FORMATTED_VALUE="$VALUE"
+                      fi
+                      
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$FORMATTED_VALUE|" "$ENV_FILE"
                       echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
                   fi
               else
-                  echo "$VAR_NAME=\"$VALUE\"" >> "$ENV_FILE"
-                  echo "✅ Criada nova variável: $VAR_NAME=\"$VALUE\""
+                  # Aplica a regra correta de aspas
+                  if [[ "$VALUE" =~ \  ]]; then
+                      FORMATTED_VALUE="\"$VALUE\""
+                  else
+                      FORMATTED_VALUE="$VALUE"
+                  fi
+                  
+                  echo "$VAR_NAME=$FORMATTED_VALUE" >> "$ENV_FILE"
+                  echo "✅ Criada nova variável: $VAR_NAME=$FORMATTED_VALUE"
               fi
           done
  
