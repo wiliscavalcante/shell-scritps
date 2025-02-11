@@ -261,4 +261,15 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
+---
+chroot /host /bin/sh -c '
+CONFIG_DIR="/env-config"
+for VAR_FILE in $(ls "$CONFIG_DIR"); do
+    VAR_NAME="$VAR_FILE"
+    MODE=$(awk -F": " "/mode:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
+    VALUE=$(awk -F": " "/value:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
+
+    echo "VAR: $VAR_NAME | MODE: $MODE | VALUE: $VALUE"
+done
+'
 
