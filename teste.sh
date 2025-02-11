@@ -115,7 +115,7 @@ spec:
         - name: certs
           mountPath: /certs
         - name: env-config
-          mountPath: /env-config
+          mountPath: /host/env-config
           readOnly: true
       volumes:
       - name: host-root
