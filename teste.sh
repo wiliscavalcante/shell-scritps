@@ -127,3 +127,48 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
+---
+echo "🔹 Criando script temporário para atualização de variáveis..."
+cat << 'EOF' > /host/tmp/update_env.sh
+#!/bin/sh
+ENV_FILE="/etc/environment"
+CONFIG_DIR="/env-config"
+
+for VAR_FILE in $(ls "$CONFIG_DIR"); do
+    VAR_NAME="$VAR_FILE"
+    MODE=$(awk -F": " "/mode:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
+    VALUE=$(awk -F": " "/value:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE" | tr -d '"') # Remove aspas extras
+
+    if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
+        echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
+        continue
+    fi
+
+    if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+        if [ "$MODE" = "append" ]; then
+            if grep -q ",$VALUE" "$ENV_FILE"; then
+                echo "🔹 Valor '$VALUE' já presente em $VAR_NAME. Nenhuma alteração necessária."
+            else
+                sed -i "/^$VAR_NAME=/ s|\$|,$VALUE|" "$ENV_FILE"
+                sed -i "s|^$VAR_NAME=,|$VAR_NAME=|" "$ENV_FILE" # Remove vírgula inicial
+                sed -i 's|,\s*|,|g' "$ENV_FILE" # Remove espaços extras entre valores
+                echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+            fi
+        else
+            sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
+            echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+        fi
+    else
+        echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
+        echo "✅ Criada nova variável: $VAR_NAME=$VALUE"
+    fi
+done
+
+echo "✅ Todas as variáveis aplicadas com sucesso!"
+EOF
+
+# Torna o script executável
+chmod +x /host/tmp/update_env.sh
+
+# Executa o script dentro do chroot
+chroot /host /bin/sh /tmp/update_env.sh
