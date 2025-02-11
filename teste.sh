@@ -33,11 +33,11 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          echo "🔹 Iniciando DaemonSet de Configuração no EKS..."
+          echo "🔹 Iniciando DaemonSet para configuração no EKS..."
           
           CONFIG_MARKER="/host/etc/nexus-configured"
           ENV_FILE="/etc/environment"
-          CONFIG_DIR="/host/env-config"
+          CONFIG_DIR="/env-config"
  
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
@@ -115,7 +115,7 @@ spec:
         - name: certs
           mountPath: /certs
         - name: env-config
-          mountPath: /host/env-config
+          mountPath: /env-config
           readOnly: true
       volumes:
       - name: host-root
@@ -129,15 +129,3 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
----
-kubectl exec -it <nome-do-pod> -n kube-system -- chroot /host /bin/sh -c '
-ENV_FILE="/etc/environment"
-CONFIG_DIR="/host/env-config"
-
-if [ ! -d "$CONFIG_DIR" ]; then
-    echo "❌ ERRO: Diretório de configuração não encontrado: $CONFIG_DIR"
-    exit 1
-fi
-
-ls -l $CONFIG_DIR
-'
