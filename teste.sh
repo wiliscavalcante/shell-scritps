@@ -129,3 +129,15 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
+---
+kubectl exec -it <nome-do-pod> -n kube-system -- chroot /host /bin/sh -c '
+ENV_FILE="/etc/environment"
+CONFIG_DIR="/host/env-config"
+
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "❌ ERRO: Diretório de configuração não encontrado: $CONFIG_DIR"
+    exit 1
+fi
+
+ls -l $CONFIG_DIR
+'
