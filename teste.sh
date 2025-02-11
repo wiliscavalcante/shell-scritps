@@ -136,8 +136,8 @@ CONFIG_DIR="/env-config"
 
 for VAR_FILE in $(ls "$CONFIG_DIR"); do
     VAR_NAME="$VAR_FILE"
-    MODE=$(awk -F": " "/mode:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
-    VALUE=$(awk -F": " "/value:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE" | tr -d '"') # Remove aspas extras
+    MODE=$(grep "mode:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ')  # Remove espaços extras
+    VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"') # Remove aspas extras
 
     if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
         echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
