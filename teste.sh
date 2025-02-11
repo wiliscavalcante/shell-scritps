@@ -66,15 +66,9 @@ spec:
  
               if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
                   if [ "$MODE" = "append" ]; then
-                      CURRENT_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
-                      if echo "$CURRENT_VALUE" | grep -q "$VALUE"; then
-                          echo "🔹 Valor '$VALUE' já presente em $VAR_NAME. Nenhuma alteração necessária."
-                      else
-                          NEW_VALUE="$CURRENT_VALUE,$VALUE"
-                          NEW_VALUE=$(echo "$NEW_VALUE" | sed 's/^,//;s/,,/,/')
-                          sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$NEW_VALUE\"|" "$ENV_FILE"
-                          echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
-                      fi
+                      sed -i "/^$VAR_NAME=/ s|\$|,$VALUE|" "$ENV_FILE"
+                      sed -i "s|,,|,|g" "$ENV_FILE" # Remove múltiplas vírgulas
+                      echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
                   else
                       sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$VALUE\"|" "$ENV_FILE"
                       echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
