@@ -269,21 +269,13 @@ spec:
       hostPID: true
 ---
 kubectl exec -it <nome-do-pod> -n kube-system -- chroot /host /bin/sh -c '
-CONFIG_DIR="/env-config"
 ENV_FILE="/etc/environment"
-
-echo "⏳ Aguardando 5 segundos antes de aplicar as variáveis..."
-sleep 5
-
-if [ ! -d "$CONFIG_DIR" ]; then
-    echo "❌ ERRO: Diretório de configuração não encontrado: $CONFIG_DIR"
-    exit 1
-fi
+CONFIG_DIR="/env-config"
 
 for VAR_FILE in $(ls "$CONFIG_DIR"); do
     VAR_NAME="$VAR_FILE"
-    MODE=$(awk -F": " "/mode:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
-    VALUE=$(awk -F": " "/value:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
+    MODE=$(awk -F": " "/mode:/ {print \$2}" "$CONFIG_DIR/$VAR_FILE")
+    VALUE=$(awk -F": " "/value:/ {print \$2}" "$CONFIG_DIR/$VAR_FILE")
 
     if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
         echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
