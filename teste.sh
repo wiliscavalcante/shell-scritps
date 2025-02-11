@@ -267,3 +267,44 @@ spec:
           name: env-config
       hostNetwork: true
       hostPID: true
+---
+kubectl exec -it <nome-do-pod> -n kube-system -- chroot /host /bin/sh -c '
+CONFIG_DIR="/env-config"
+ENV_FILE="/etc/environment"
+
+echo "⏳ Aguardando 5 segundos antes de aplicar as variáveis..."
+sleep 5
+
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "❌ ERRO: Diretório de configuração não encontrado: $CONFIG_DIR"
+    exit 1
+fi
+
+for VAR_FILE in $(ls "$CONFIG_DIR"); do
+    VAR_NAME="$VAR_FILE"
+    MODE=$(awk -F": " "/mode:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
+    VALUE=$(awk -F": " "/value:/ {print \\$2}" "$CONFIG_DIR/$VAR_FILE")
+
+    if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
+        echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
+        continue
+    fi
+
+    if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+        if [ "$MODE" = "append" ]; then
+            sed -i "/^$VAR_NAME=/ s|\$|,$VALUE|" "$ENV_FILE"
+            sed -i "s|,,|,|g" "$ENV_FILE" # Remove múltiplas vírgulas
+            echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+        else
+            sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$VALUE\"|" "$ENV_FILE"
+            echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+        fi
+    else
+        echo "$VAR_NAME=\"$VALUE\"" >> "$ENV_FILE"
+        echo "✅ Criada nova variável: $VAR_NAME=\"$VALUE\""
+    fi
+done
+
+source "$ENV_FILE"
+echo "✅ Todas as variáveis aplicadas com sucesso!"
+'
