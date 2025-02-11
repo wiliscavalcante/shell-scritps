@@ -169,14 +169,22 @@ spec:
           
           CONFIG_MARKER="/host/etc/nexus-configured"
           ENV_FILE="/etc/environment"
-          CONFIG_DIR="/env-config"
+          CONFIG_DIR="/host/env-config"
  
           if [ "$FORCE_RECONFIGURE" = "false" ] && [ -f "$CONFIG_MARKER" ]; then
             echo "✅ Configuração já aplicada. Mantendo pod ativo..."
             exec sleep infinity
           fi
  
-          echo "🚀 Aplicando variáveis de ambiente do ConfigMap..."
+          echo "🔹 Etapa 1: Verificando ConfigMap das variáveis..."
+          if [ "$(ls -A "$CONFIG_DIR" | wc -l)" -eq 0 ]; then
+              echo "❌ ERRO: Nenhuma variável encontrada no ConfigMap!"
+              exit 1
+          fi
+ 
+          mkdir -p /tmp/env-config-backup
+          cp "$CONFIG_DIR"/* /tmp/env-config-backup/
+          echo "✅ Arquivos do ConfigMap copiados para backup. Processando variáveis..."
  
           chroot /host /bin/sh -c '
           ENV_FILE="/etc/environment"
@@ -245,7 +253,7 @@ spec:
         - name: certs
           mountPath: /certs
         - name: env-config
-          mountPath: /env-config
+          mountPath: /host/env-config
           readOnly: true
       volumes:
       - name: host-root
