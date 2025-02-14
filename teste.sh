@@ -72,21 +72,26 @@ spec:
                   IFS=',' read -r -a EXISTING_ARRAY <<< "$EXISTING_VALUE"
                   IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
 
-                  # Criar um conjunto de valores existentes para evitar duplicação
                   declare -A VALUE_SET
                   for ITEM in "${EXISTING_ARRAY[@]}"; do
                       VALUE_SET["$ITEM"]=1
                   done
 
-                  # Adicionar novos valores apenas se não existirem
+                  FINAL_VALUES=()
+                  for ITEM in "${EXISTING_ARRAY[@]}"; do
+                      if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
+                          FINAL_VALUES+=("$ITEM")
+                      fi
+                  done
+
                   for ITEM in "${NEW_VALUES[@]}"; do
                       if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
-                          EXISTING_ARRAY+=("$ITEM")
+                          FINAL_VALUES+=("$ITEM")
                           VALUE_SET["$ITEM"]=1
                       fi
                   done
 
-                  UPDATED_VALUE=$(IFS=','; echo "${EXISTING_ARRAY[*]}")
+                  UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
                   sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
                   echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
               else
@@ -94,19 +99,23 @@ spec:
               fi
           }
 
-          for VAR_FILE in $(ls "$CONFIG_DIR"); do
-              VAR_NAME=$(basename "$VAR_FILE")
-              VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
+          if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
+              for VAR_FILE in $(ls "$CONFIG_DIR"); do
+                  VAR_NAME=$(basename "$VAR_FILE")
+                  VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
 
-              if [ -z "$VALUE" ]; then
-                  echo "❌ ERRO: Valor ausente para $VAR_NAME. Pulando..."
-                  continue
-              fi
+                  if [ -z "$VALUE" ]; then
+                      echo "❌ ERRO: Valor ausente para $VAR_NAME. Pulando..."
+                      continue
+                  fi
 
-              update_variable "$VAR_NAME" "$VALUE"
-          done
+                  update_variable "$VAR_NAME" "$VALUE"
+              done
 
-          echo "✅ Todas as variáveis aplicadas com sucesso!"
+              echo "✅ Todas as variáveis aplicadas com sucesso!"
+          else
+              echo "✅ Nenhuma alteração detectada, pulando atualização de variáveis."
+          fi
           EOF
 
           chmod +x /host/tmp/update_env.sh
