@@ -72,34 +72,28 @@ spec:
                   IFS=',' read -r -a EXISTING_ARRAY <<< "$EXISTING_VALUE"
                   IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
 
+                  # Criar um conjunto de valores existentes para evitar duplicação
                   declare -A VALUE_SET
                   for ITEM in "${EXISTING_ARRAY[@]}"; do
                       VALUE_SET["$ITEM"]=1
                   done
+
+                  # Adicionar novos valores apenas se não existirem
                   for ITEM in "${NEW_VALUES[@]}"; do
-                      VALUE_SET["$ITEM"]=1
+                      if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
+                          EXISTING_ARRAY+=("$ITEM")
+                          VALUE_SET["$ITEM"]=1
+                      fi
                   done
 
-                  FINAL_VALUES=()
-                  for ITEM in "${!VALUE_SET[@]}"; do
-                      FINAL_VALUES+=("$ITEM")
-                  done
-
-                  UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
-                  
-                  # Atualiza a variável no ambiente apenas se houver mudança
-                  if [ "$UPDATED_VALUE" != "$EXISTING_VALUE" ]; then
-                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
-                      echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
-                  else
-                      echo "⚠️ Nenhuma alteração necessária para $VAR_NAME"
-                  fi
+                  UPDATED_VALUE=$(IFS=','; echo "${EXISTING_ARRAY[*]}")
+                  sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
+                  echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
               else
-                  echo "⚠️ Variável $VAR_NAME não existe no ambiente. Nenhuma ação tomada."
+                  echo "❌ Variável $VAR_NAME não existe no ambiente. Nenhuma ação tomada."
               fi
           }
 
-          # Processa todas as variáveis do ConfigMap
           for VAR_FILE in $(ls "$CONFIG_DIR"); do
               VAR_NAME=$(basename "$VAR_FILE")
               VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
