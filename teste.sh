@@ -73,7 +73,7 @@ spec:
                   IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
 
                   declare -A VALUE_SET
-                  for ITEM in "${NEW_VALUES[@]}"; do
+                  for ITEM in "${EXISTING_ARRAY[@]}"; do
                       VALUE_SET["$ITEM"]=1
                   done
 
@@ -87,12 +87,17 @@ spec:
                   for ITEM in "${NEW_VALUES[@]}"; do
                       if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
                           FINAL_VALUES+=("$ITEM")
+                          VALUE_SET["$ITEM"]=1
                       fi
                   done
 
                   UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
-                  sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
-                  echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
+                  if [ "$UPDATED_VALUE" != "$EXISTING_VALUE" ]; then
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
+                      echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
+                  else
+                      echo "✅ Nenhuma alteração necessária para $VAR_NAME"
+                  fi
               else
                   echo "❌ Variável $VAR_NAME não existe no ambiente. Nenhuma ação tomada."
               fi
