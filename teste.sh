@@ -81,7 +81,7 @@ spec:
                   done
 
                   FINAL_VALUES=()
-                  for ITEM in "${EXISTING_ARRAY[@]}"; do
+                  for ITEM in "${EXISTING_ARRAY[@]}" "${NEW_VALUES[@]}"; do
                       if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
                           FINAL_VALUES+=("$ITEM")
                       fi
