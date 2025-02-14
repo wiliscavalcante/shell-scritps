@@ -90,6 +90,8 @@ spec:
                   UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
                   sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
                   echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
+              else
+                  echo "❌ Variável $VAR_NAME não existe no ambiente. Nenhuma ação tomada."
               fi
           }
 
@@ -109,7 +111,6 @@ spec:
           EOF
 
           chmod +x /host/tmp/update_env.sh
-
 
           echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
           if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
