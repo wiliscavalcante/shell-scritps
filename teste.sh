@@ -57,6 +57,70 @@ spec:
           echo "Checksum ATUAL das variáveis: $CURRENT_ENV_CHECKSUM"
           echo "Checksum ATUAL dos certificados: $CURRENT_CERTS_CHECKSUM"
 
+          echo "========== 🔹 Criando script de manipulação de variáveis =========="
+          cat << 'EOF' > /host/tmp/update_env.sh
+          #!/bin/sh
+          ENV_FILE="/etc/environment"
+          CONFIG_DIR="/env-config"
+
+          update_variable() {
+              VAR_NAME=$1
+              MODE=$2
+              VALUE=$3
+
+              if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                  if [ "$MODE" = "append" ]; then
+                      EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
+                      IFS=',' read -r -a EXISTING_ARRAY <<< "$EXISTING_VALUE"
+                      IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
+
+                      declare -A VALUE_SET
+                      for ITEM in "${EXISTING_ARRAY[@]}"; do
+                          VALUE_SET["$ITEM"]=1
+                      done
+                      for ITEM in "${NEW_VALUES[@]}"; do
+                          if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
+                              EXISTING_ARRAY+=("$ITEM")
+                              VALUE_SET["$ITEM"]=1
+                          fi
+                      done
+
+                      UPDATED_VALUE=$(IFS=','; echo "${EXISTING_ARRAY[*]}")
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
+                      echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+                  elif [ "$MODE" = "overwrite" ]; then
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
+                      echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+                  else
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
+                      echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+                  fi
+              else
+                  echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
+                  echo "✅ Criada nova variável: $VAR_NAME=$VALUE"
+              fi
+          }
+
+          for VAR_FILE in $(ls "$CONFIG_DIR"); do
+              VAR_NAME=$(basename "$VAR_FILE")
+              MODE=$(grep "mode:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ')
+              VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
+
+              if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
+                  echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
+                  continue
+              fi
+
+              update_variable "$VAR_NAME" "$MODE" "$VALUE"
+              VAR_NAME_UPPER=$(echo "$VAR_NAME" | tr '[:lower:]' '[:upper:]')
+              update_variable "$VAR_NAME_UPPER" "$MODE" "$VALUE"
+          done
+
+          echo "✅ Todas as variáveis aplicadas com sucesso!"
+          EOF
+
+          chmod +x /host/tmp/update_env.sh
+
           echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
 
           if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
@@ -100,6 +164,7 @@ spec:
           echo "========== ✅ Configuração finalizada! =========="
 
           exec sleep infinity
+
         volumeMounts:
         - name: host-root
           mountPath: /host
