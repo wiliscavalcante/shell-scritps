@@ -73,7 +73,7 @@ spec:
                   IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
 
                   declare -A VALUE_SET
-                  for ITEM in "${EXISTING_ARRAY[@]}"; do
+                  for ITEM in "${NEW_VALUES[@]}"; do
                       VALUE_SET["$ITEM"]=1
                   done
 
@@ -87,7 +87,6 @@ spec:
                   for ITEM in "${NEW_VALUES[@]}"; do
                       if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
                           FINAL_VALUES+=("$ITEM")
-                          VALUE_SET["$ITEM"]=1
                       fi
                   done
 
