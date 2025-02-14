@@ -24,12 +24,12 @@ spec:
       containers:
       - name: node-config-agent
         image: amazonlinux:latest
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         securityContext:
           privileged: true
         env:
         - name: FORCE_RECONFIGURE
-          value: "false"
+          value: "true"
         command: ["/bin/sh", "-c"]
         args:
         - |
@@ -81,23 +81,25 @@ spec:
                   done
 
                   FINAL_VALUES=()
-                  for ITEM in "${EXISTING_ARRAY[@]}"; do
+                  for ITEM in "${!VALUE_SET[@]}"; do
                       FINAL_VALUES+=("$ITEM")
-                  done
-                  for ITEM in "${NEW_VALUES[@]}"; do
-                      if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
-                          FINAL_VALUES+=("$ITEM")
-                      fi
                   done
 
                   UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
-                  sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
-                  echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
+                  
+                  # Atualiza a variável no ambiente apenas se houver mudança
+                  if [ "$UPDATED_VALUE" != "$EXISTING_VALUE" ]; then
+                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
+                      echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
+                  else
+                      echo "⚠️ Nenhuma alteração necessária para $VAR_NAME"
+                  fi
               else
-                  echo "❌ Variável $VAR_NAME não existe no ambiente. Nenhuma ação tomada."
+                  echo "⚠️ Variável $VAR_NAME não existe no ambiente. Nenhuma ação tomada."
               fi
           }
 
+          # Processa todas as variáveis do ConfigMap
           for VAR_FILE in $(ls "$CONFIG_DIR"); do
               VAR_NAME=$(basename "$VAR_FILE")
               VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
