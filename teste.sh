@@ -47,9 +47,9 @@ spec:
           LAST_ENV_CHECKSUM=$(cat "$ENV_CHECKSUM_FILE" 2>/dev/null || echo "")
           LAST_CERTS_CHECKSUM=$(cat "$CERTS_CHECKSUM_FILE" 2>/dev/null || echo "")
 
-          # Gerar checksums usando `chroot` para garantir compatibilidade com o host
-          CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f ! -name ".*" ! -name "*.tmp" ! -name "*~" -exec sha256sum {} \; | sort | sha256sum' | awk '{print $1}')
-          CURRENT_CERTS_CHECKSUM=$(chroot /host /bin/sh -c 'find /certs -type f ! -name ".*" ! -name "*.tmp" ! -name "*~" -exec sha256sum {} \; | sort | sha256sum' | awk '{print $1}')
+          # Gerar checksums confiáveis apenas do conteúdo dos arquivos, ignorando metadados e garantindo ordem
+          CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f ! -name ".*" ! -name "*.tmp" ! -name "*~" | sort | xargs cat | sha256sum' | awk '{print $1}')
+          CURRENT_CERTS_CHECKSUM=$(chroot /host /bin/sh -c 'find /certs -type f ! -name ".*" ! -name "*.tmp" ! -name "*~" | sort | xargs cat | sha256sum' | awk '{print $1}')
 
           echo "✅ Estado atual dos ConfigMaps lido com sucesso"
           echo "Último checksum das variáveis salvo: $LAST_ENV_CHECKSUM"
@@ -164,7 +164,6 @@ spec:
           echo "========== ✅ Configuração finalizada! =========="
 
           exec sleep infinity
-
         volumeMounts:
         - name: host-root
           mountPath: /host
