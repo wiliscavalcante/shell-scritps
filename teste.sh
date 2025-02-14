@@ -65,79 +65,51 @@ spec:
 
           update_variable() {
               VAR_NAME=$1
-              MODE=$2
-              VALUE=$3
+              VALUE=$2
 
-              if [ "$MODE" = "append" ]; then
-                  # Se a variável já existe, gerenciar os valores individualmente
-                  if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
-                      EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
-                      IFS=',' read -r -a EXISTING_ARRAY <<< "$EXISTING_VALUE"
-                      IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
+              if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                  EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
+                  IFS=',' read -r -a EXISTING_ARRAY <<< "$EXISTING_VALUE"
+                  IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
 
-                      # Criar um conjunto para evitar duplicações
-                      declare -A VALUE_SET
-                      for ITEM in "${EXISTING_ARRAY[@]}"; do
-                          VALUE_SET["$ITEM"]=1
-                      done
-                      for ITEM in "${NEW_VALUES[@]}"; do
-                          VALUE_SET["$ITEM"]=1
-                      done
+                  declare -A VALUE_SET
+                  for ITEM in "${EXISTING_ARRAY[@]}"; do
+                      VALUE_SET["$ITEM"]=1
+                  done
+                  for ITEM in "${NEW_VALUES[@]}"; do
+                      VALUE_SET["$ITEM"]=1
+                  done
 
-                      # Construir nova lista removendo os valores que não estão mais no ConfigMap
-                      FINAL_VALUES=()
-                      for ITEM in "${NEW_VALUES[@]}"; do
-                          if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
-                              FINAL_VALUES+=("$ITEM")
-                          fi
-                      done
-
-                      UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
-                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
-                      echo "✅ Variável $VAR_NAME atualizada (append): $UPDATED_VALUE"
-                  else
-                      echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
-                      echo "✅ Variável $VAR_NAME criada (append): $VALUE"
-                  fi
-              elif [ "$MODE" = "overwrite" ]; then
-                  if [ -n "$VALUE" ]; then
-                      if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
-                          sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
-                          echo "✅ Variável $VAR_NAME atualizada (overwrite): $VALUE"
-                      else
-                          echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
-                          echo "✅ Variável $VAR_NAME criada (overwrite): $VALUE"
+                  FINAL_VALUES=()
+                  for ITEM in "${EXISTING_ARRAY[@]}"; do
+                      if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
+                          FINAL_VALUES+=("$ITEM")
                       fi
-                  else
-                      # Se a variável está no environment, mas foi removida do ConfigMap, devemos apagá-la
-                      if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
-                          sed -i "/^$VAR_NAME=/d" "$ENV_FILE"
-                          echo "❌ Variável $VAR_NAME removida (overwrite)."
-                      fi
-                  fi
+                  done
+
+                  UPDATED_VALUE=$(IFS=','; echo "${FINAL_VALUES[*]}")
+                  sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
+                  echo "✅ Variável $VAR_NAME atualizada: $UPDATED_VALUE"
               fi
           }
 
-          # Processa todas as variáveis do ConfigMap
           for VAR_FILE in $(ls "$CONFIG_DIR"); do
               VAR_NAME=$(basename "$VAR_FILE")
-              MODE=$(grep "mode:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ')
               VALUE=$(grep "value:" "$CONFIG_DIR/$VAR_FILE" | cut -d':' -f2 | tr -d ' ' | tr -d '"')
 
-              if [ -z "$MODE" ] || [ -z "$VALUE" ]; then
-                  echo "❌ ERRO: Modo ou valor ausente para $VAR_NAME. Pulando..."
+              if [ -z "$VALUE" ]; then
+                  echo "❌ ERRO: Valor ausente para $VAR_NAME. Pulando..."
                   continue
               fi
 
-              update_variable "$VAR_NAME" "$MODE" "$VALUE"
-              VAR_NAME_UPPER=$(echo "$VAR_NAME" | tr '[:lower:]' '[:upper:]')
-              update_variable "$VAR_NAME_UPPER" "$MODE" "$VALUE"
+              update_variable "$VAR_NAME" "$VALUE"
           done
 
           echo "✅ Todas as variáveis aplicadas com sucesso!"
           EOF
 
           chmod +x /host/tmp/update_env.sh
+
 
           echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
           if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
