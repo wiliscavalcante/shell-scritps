@@ -62,42 +62,30 @@ spec:
           #!/bin/sh
           ENV_FILE="/etc/environment"
           CONFIG_DIR="/env-config"
+          VALID_VARIABLES="/tmp/valid_variables.list"
+          echo "" > "$VALID_VARIABLES"
 
           update_variable() {
               VAR_NAME=$1
               MODE=$2
               VALUE=$3
 
+              echo "$VAR_NAME" >> "$VALID_VARIABLES"
+
               if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
                   if [ "$MODE" = "append" ]; then
                       EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
-                      IFS=',' read -r -a EXISTING_ARRAY <<< "$EXISTING_VALUE"
-                      IFS=',' read -r -a NEW_VALUES <<< "$VALUE"
-
-                      declare -A VALUE_SET
-                      for ITEM in "${EXISTING_ARRAY[@]}"; do
-                          VALUE_SET["$ITEM"]=1
-                      done
-                      for ITEM in "${NEW_VALUES[@]}"; do
-                          if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
-                              EXISTING_ARRAY+=("$ITEM")
-                              VALUE_SET["$ITEM"]=1
-                          fi
-                      done
-
-                      UPDATED_VALUE=$(IFS=','; echo "${EXISTING_ARRAY[*]}")
-                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$UPDATED_VALUE|" "$ENV_FILE"
-                      echo "✅ Incrementado valor em $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
+                      if [[ "$EXISTING_VALUE" != *"$VALUE"* ]]; then
+                          echo "✅ Incrementado valor em $VAR_NAME: $VALUE"
+                          sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
+                      fi
                   elif [ "$MODE" = "overwrite" ]; then
+                      echo "✅ Substituindo valor de $VAR_NAME"
                       sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
-                      echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
-                  else
-                      sed -i "s|^$VAR_NAME=.*|$VAR_NAME=$VALUE|" "$ENV_FILE"
-                      echo "✅ Substituído valor de $VAR_NAME: $(grep "^$VAR_NAME=" $ENV_FILE)"
                   fi
               else
                   echo "$VAR_NAME=$VALUE" >> "$ENV_FILE"
-                  echo "✅ Criada nova variável: $VAR_NAME=$VALUE"
+                  echo "✅ Criada nova variável: $VAR_NAME"
               fi
           }
 
@@ -116,13 +104,20 @@ spec:
               update_variable "$VAR_NAME_UPPER" "$MODE" "$VALUE"
           done
 
+          echo "🔹 Removendo variáveis não presentes no ConfigMap..."
+          grep -o '^[^=]*' "$ENV_FILE" | while read -r VAR; do
+              if ! grep -qx "$VAR" "$VALID_VARIABLES"; then
+                  echo "❌ Removendo variável obsoleta: $VAR"
+                  sed -i "/^$VAR=/d" "$ENV_FILE"
+              fi
+          done
+
           echo "✅ Todas as variáveis aplicadas com sucesso!"
           EOF
 
           chmod +x /host/tmp/update_env.sh
 
           echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
-
           if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
               echo "🚀 Alteração detectada nas variáveis de ambiente. Aplicando reconfiguração..."
               chroot /host /bin/sh /tmp/update_env.sh
@@ -133,7 +128,6 @@ spec:
           fi
 
           echo "========== 🔹 Verificando alterações nos certificados =========="
-
           if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_CERTS_CHECKSUM" != "$LAST_CERTS_CHECKSUM" ]; then
               echo "🚀 Alteração detectada nos certificados. Aplicando reconfiguração..."
               mkdir -p /host/etc/pki/ca-trust/source/anchors/
