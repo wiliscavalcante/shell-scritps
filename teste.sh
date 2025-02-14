@@ -81,9 +81,15 @@ spec:
                   done
 
                   FINAL_VALUES=()
-                  for ITEM in "${EXISTING_ARRAY[@]}" "${NEW_VALUES[@]}"; do
+                  for ITEM in "${EXISTING_ARRAY[@]}"; do
                       if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
                           FINAL_VALUES+=("$ITEM")
+                      fi
+                  done
+                  for ITEM in "${NEW_VALUES[@]}"; do
+                      if [[ -z "${VALUE_SET[$ITEM]}" ]]; then
+                          FINAL_VALUES+=("$ITEM")
+                          VALUE_SET["$ITEM"]=1
                       fi
                   done
 
@@ -111,6 +117,7 @@ spec:
           EOF
 
           chmod +x /host/tmp/update_env.sh
+
 
           echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
           if [ "$FORCE_RECONFIGURE" = "true" ] || [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
