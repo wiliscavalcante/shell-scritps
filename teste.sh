@@ -40,7 +40,7 @@ spec:
           
           if [ "$CURRENT_ENV_CHECKSUM" = "$LAST_ENV_CHECKSUM" ]; then
               echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Nenhuma alteração detectada nos ConfigMaps. Pulando execução."
-              exit 0
+              exec sleep infinity  # Mantém o container rodando
           fi
           
           echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
@@ -50,7 +50,12 @@ spec:
               NEW_VALUE=$2
               ENV_FILE="/host/etc/environment"
               
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Atualizando $VAR_NAME"
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Tentando atualizar $VAR_NAME em $ENV_FILE"
+              
+              if [ ! -w "$ENV_FILE" ]; then
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ ERRO: Sem permissão para modificar $ENV_FILE"
+                  exit 1
+              fi
               
               if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
                   EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
@@ -59,6 +64,7 @@ spec:
               else
                   echo "$VAR_NAME=\"$NEW_VALUE\"" >> "$ENV_FILE"
               fi
+              
               echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado para: $(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2-)"
           }
           
@@ -82,7 +88,7 @@ spec:
           echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ containerd reiniciado!"
           
           echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Configuração finalizada!"
-          exec sleep infinity
+          exec sleep infinity  # Mantém o container rodando
         volumeMounts:
         - name: host-root
           mountPath: /host
