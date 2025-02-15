@@ -30,65 +30,117 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Iniciando configuração do DaemonSet"
+          echo "========== 🔹 Iniciando configuração do DaemonSet =========="
+
+          # Definir locais para armazenar os checksums
           ENV_CHECKSUM_FILE="/host/etc/env-config-checksum"
-          CONFIG_DIR="/host/env-config"
-          
+          CERTS_CHECKSUM_FILE="/host/etc/certs-config-checksum"
+          CONFIG_DIR="/env-config"
+          CERTS_DIR="/host/certs"
+
+          # Criar os arquivos de checksum se não existirem
           [ ! -f "$ENV_CHECKSUM_FILE" ] && echo "" > "$ENV_CHECKSUM_FILE"
+          [ ! -f "$CERTS_CHECKSUM_FILE" ] && echo "" > "$CERTS_CHECKSUM_FILE"
+
+          # Ler os últimos checksums salvos
           LAST_ENV_CHECKSUM=$(cat "$ENV_CHECKSUM_FILE" 2>/dev/null || echo "")
-          CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f -exec cat {} \; | sha256sum' | awk '{print $1}')
-          
-          if [ "$CURRENT_ENV_CHECKSUM" = "$LAST_ENV_CHECKSUM" ]; then
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Nenhuma alteração detectada nos ConfigMaps. Pulando execução."
-              exec sleep infinity  # Mantém o container rodando
-          fi
-          
-          echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
-          
-          update_proxy_vars() {
-              VAR_NAME=$1
-              NEW_VALUE=$2
-              ENV_FILE="/etc/environment"
-              
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Tentando atualizar $VAR_NAME em $ENV_FILE"
-              
-              if ! chroot /host test -w "$ENV_FILE"; then
-                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ ERRO: Sem permissão para modificar $ENV_FILE"
-                  exit 1
-              fi
-              
-              if chroot /host grep -q "^$VAR_NAME=" "$ENV_FILE"; then
-                  EXISTING_VALUE=$(chroot /host grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
-                  UPDATED_VALUE=$(echo "$EXISTING_VALUE,$NEW_VALUE" | awk -F, '{for(i=1;i<=NF;i++) if(!a[$i]++) printf (i==1 ? "%s" : ",%s"),$i; print ""}')
-                  chroot /host sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$UPDATED_VALUE\"|" "$ENV_FILE"
+          LAST_CERTS_CHECKSUM=$(cat "$CERTS_CHECKSUM_FILE" 2>/dev/null || echo "")
+
+          # Gerar novos checksums
+          CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f ! -name ".*" | sort | xargs cat | sha256sum' | awk '{print $1}')
+          CURRENT_CERTS_CHECKSUM=$(chroot /host /bin/sh -c 'find /certs -type f ! -name ".*" | sort | xargs cat | sha256sum' | awk '{print $1}')
+
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Estado atual dos ConfigMaps lido com sucesso"
+          echo "Último checksum de variáveis: $LAST_ENV_CHECKSUM"
+          echo "Checksum ATUAL de variáveis: $CURRENT_ENV_CHECKSUM"
+          echo "Último checksum de certificados: $LAST_CERTS_CHECKSUM"
+          echo "Checksum ATUAL de certificados: $CURRENT_CERTS_CHECKSUM"
+
+          # Criar script de manipulação de variáveis de ambiente
+          cat << 'EOF' > /host/tmp/update_env.sh
+          #!/bin/sh
+          CONFIG_DIR="/env-config"
+          TEMP_ENV="/etc/environment.tmp"
+          TEMP_LIST="/tmp/env_list.tmp"
+
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Iniciando atualização das variáveis de ambiente"
+
+          cp /etc/environment $TEMP_ENV
+
+          for CONFIG_FILE in "$CONFIG_DIR"/*; do
+              VAR_NAME=$(basename "$CONFIG_FILE")
+              NEW_VALUES=$(cat "$CONFIG_FILE" 2>/dev/null | tr -d '\n' || echo "")
+
+              if [ -n "$NEW_VALUES" ]; then
+                  if grep -qi "^$VAR_NAME=" /etc/environment; then
+                      EXISTING_VALUES=$(grep -i "^$VAR_NAME=" /etc/environment | cut -d'=' -f2- | tr ',' '\n')
+
+                      # Junta os valores existentes e novos, removendo duplicatas
+                      echo "$EXISTING_VALUES" > "$TEMP_LIST"
+                      echo "$NEW_VALUES" | tr ',' '\n' >> "$TEMP_LIST"
+                      FINAL_LIST=$(awk '!seen[$0]++' "$TEMP_LIST" | paste -sd, -)
+
+                      # Atualiza a variável no arquivo temporário
+                      sed -i "/^$VAR_NAME=/c\\$VAR_NAME=$FINAL_LIST" $TEMP_ENV
+                      echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizada: $FINAL_LIST"
+                  else
+                      echo "$VAR_NAME=$NEW_VALUES" >> $TEMP_ENV
+                      echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME criada: $NEW_VALUES"
+                  fi
               else
-                  echo "$VAR_NAME=\"$NEW_VALUE\"" | chroot /host tee -a "$ENV_FILE"
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Nenhuma atualização necessária para $VAR_NAME (ConfigMap vazio ou ausente)"
               fi
-              
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado para: $(chroot /host grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2-)"
-          }
-          
-          NO_PROXY_VALUES=$(chroot /host cat "$CONFIG_DIR/NO_PROXY" 2>/dev/null || echo "")
-          no_proxy_VALUES=$(chroot /host cat "$CONFIG_DIR/no_proxy" 2>/dev/null || echo "")
-          
-          if [ -n "$NO_PROXY_VALUES" ]; then
-              update_proxy_vars "NO_PROXY" "$NO_PROXY_VALUES"
-              update_proxy_vars "no_proxy" "$NO_PROXY_VALUES"
+          done
+
+          rm -f $TEMP_LIST
+          mv $TEMP_ENV /etc/environment
+
+          # **Executa o source para recarregar as variáveis no sistema**
+          chroot /host /bin/sh -c 'export $(grep -v "^#" /etc/environment | xargs)'
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Variáveis de ambiente recarregadas no sistema."
+          EOF
+
+          chmod +x /host/tmp/update_env.sh
+
+          echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
+          if [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
+              echo "🚀 Alteração detectada nas variáveis de ambiente. Aplicando reconfiguração..."
+              chroot /host /bin/sh /tmp/update_env.sh
+              echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
+              RESTART_CONTAINERD=true
+          else
+              echo "✅ Nenhuma alteração detectada nas variáveis de ambiente. Pulando esta etapa."
           fi
-          
-          if [ -n "$no_proxy_VALUES" ]; then
-              update_proxy_vars "NO_PROXY" "$no_proxy_VALUES"
-              update_proxy_vars "no_proxy" "$no_proxy_VALUES"
+
+          echo "========== 🔹 Verificando alterações nos certificados =========="
+          if [ "$CURRENT_CERTS_CHECKSUM" != "$LAST_CERTS_CHECKSUM" ]; then
+              echo "🚀 Alteração detectada nos certificados. Aplicando reconfiguração..."
+              mkdir -p /host/etc/pki/ca-trust/source/anchors/
+              cp /host/certs/* /host/etc/pki/ca-trust/source/anchors/
+              chroot /host update-ca-trust extract
+              echo "✅ Certificados instalados e atualizados!"
+              echo "$CURRENT_CERTS_CHECKSUM" > "$CERTS_CHECKSUM_FILE"
+              RESTART_CONTAINERD=true
+          else
+              echo "✅ Nenhuma alteração detectada nos certificados. Pulando esta etapa."
           fi
-          
-          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Variáveis de proxy configuradas com sucesso!"
-          
-          echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Reiniciando containerd..."
-          chroot /host /bin/sh -c 'systemctl restart containerd || kill -HUP $(pidof containerd)'
-          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ containerd reiniciado!"
-          
-          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Configuração finalizada!"
-          exec sleep infinity  # Mantém o container rodando
+
+          echo "========== 🔹 Verificando necessidade de reinicialização do containerd =========="
+          if [ "$RESTART_CONTAINERD" = "true" ]; then
+              echo "🔹 Reiniciando containerd..."
+              chroot /host /bin/sh -c '
+              if command -v systemctl &> /dev/null; then
+                  systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
+              fi
+              kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
+              '
+          else
+              echo "✅ Nenhuma mudança relevante detectada. `containerd` não será reiniciado."
+          fi
+
+          echo "========== ✅ Configuração finalizada! =========="
+
+          exec sleep infinity
         volumeMounts:
         - name: host-root
           mountPath: /host
@@ -104,52 +156,8 @@ spec:
       - name: certs
         configMap:
           name: certs-config
-          optional: true
       - name: env-config
         configMap:
           name: env-config
-          optional: true
       hostNetwork: true
       hostPID: true
-      ---
-      cat << 'EOF' > /host/tmp/update_env.sh
-#!/bin/sh
-CONFIG_DIR="/env-config"
-TEMP_ENV="/etc/environment.tmp"
-TEMP_LIST="/tmp/env_list.tmp"
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Iniciando atualização das variáveis de ambiente"
-
-# Copia o arquivo de ambiente atual para um temporário
-cp /etc/environment $TEMP_ENV
-
-for CONFIG_FILE in "$CONFIG_DIR"/*; do
-    VAR_NAME=$(basename "$CONFIG_FILE")
-    NEW_VALUES=$(cat "$CONFIG_FILE" 2>/dev/null | tr -d '\n' || echo "")
-
-    if [ -n "$NEW_VALUES" ]; then
-        if grep -qi "^$VAR_NAME=" /etc/environment; then
-            EXISTING_VALUES=$(grep -i "^$VAR_NAME=" /etc/environment | cut -d'=' -f2- | tr ',' '\n')
-
-            # Junta os valores existentes e novos, removendo duplicatas
-            echo "$EXISTING_VALUES" > "$TEMP_LIST"
-            echo "$NEW_VALUES" | tr ',' '\n' >> "$TEMP_LIST"
-            FINAL_LIST=$(awk '!seen[$0]++' "$TEMP_LIST" | paste -sd, -)
-
-            # Atualiza a variável no arquivo temporário
-            sed -i "/^$VAR_NAME=/c\\$VAR_NAME=$FINAL_LIST" $TEMP_ENV
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado: $FINAL_LIST"
-        else
-            echo "$VAR_NAME=$NEW_VALUES" >> $TEMP_ENV
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME criada: $NEW_VALUES"
-        fi
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Nenhuma atualização necessária para $VAR_NAME (ConfigMap vazio ou ausente)"
-    fi
-done
-
-# Remove o arquivo temporário de lista
-rm -f $TEMP_LIST
-# Move o arquivo temporário de ambiente para o local original
-mv $TEMP_ENV /etc/environment
-EOF
