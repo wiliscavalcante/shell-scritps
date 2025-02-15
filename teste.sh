@@ -111,3 +111,45 @@ spec:
           optional: true
       hostNetwork: true
       hostPID: true
+      ---
+      cat << 'EOF' > /host/tmp/update_env.sh
+#!/bin/sh
+CONFIG_DIR="/env-config"
+TEMP_ENV="/etc/environment.tmp"
+TEMP_LIST="/tmp/env_list.tmp"
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Iniciando atualização das variáveis de ambiente"
+
+# Copia o arquivo de ambiente atual para um temporário
+cp /etc/environment $TEMP_ENV
+
+for CONFIG_FILE in "$CONFIG_DIR"/*; do
+    VAR_NAME=$(basename "$CONFIG_FILE")
+    NEW_VALUES=$(cat "$CONFIG_FILE" 2>/dev/null | tr -d '\n' || echo "")
+
+    if [ -n "$NEW_VALUES" ]; then
+        if grep -qi "^$VAR_NAME=" /etc/environment; then
+            EXISTING_VALUES=$(grep -i "^$VAR_NAME=" /etc/environment | cut -d'=' -f2- | tr ',' '\n')
+
+            # Junta os valores existentes e novos, removendo duplicatas
+            echo "$EXISTING_VALUES" > "$TEMP_LIST"
+            echo "$NEW_VALUES" | tr ',' '\n' >> "$TEMP_LIST"
+            FINAL_LIST=$(awk '!seen[$0]++' "$TEMP_LIST" | paste -sd, -)
+
+            # Atualiza a variável no arquivo temporário
+            sed -i "/^$VAR_NAME=/c\\$VAR_NAME=$FINAL_LIST" $TEMP_ENV
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado: $FINAL_LIST"
+        else
+            echo "$VAR_NAME=$NEW_VALUES" >> $TEMP_ENV
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME criada: $NEW_VALUES"
+        fi
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Nenhuma atualização necessária para $VAR_NAME (ConfigMap vazio ou ausente)"
+    fi
+done
+
+# Remove o arquivo temporário de lista
+rm -f $TEMP_LIST
+# Move o arquivo temporário de ambiente para o local original
+mv $TEMP_ENV /etc/environment
+EOF
