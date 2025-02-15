@@ -32,7 +32,7 @@ spec:
         - |
           echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Iniciando configuração do DaemonSet"
           ENV_CHECKSUM_FILE="/host/etc/env-config-checksum"
-          CONFIG_DIR="/env-config"
+          CONFIG_DIR="/host/env-config"
           
           [ ! -f "$ENV_CHECKSUM_FILE" ] && echo "" > "$ENV_CHECKSUM_FILE"
           LAST_ENV_CHECKSUM=$(cat "$ENV_CHECKSUM_FILE" 2>/dev/null || echo "")
@@ -48,28 +48,28 @@ spec:
           update_proxy_vars() {
               VAR_NAME=$1
               NEW_VALUE=$2
-              ENV_FILE="/host/etc/environment"
+              ENV_FILE="/etc/environment"
               
               echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Tentando atualizar $VAR_NAME em $ENV_FILE"
               
-              if [ ! -w "$ENV_FILE" ]; then
+              if ! chroot /host test -w "$ENV_FILE"; then
                   echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ ERRO: Sem permissão para modificar $ENV_FILE"
                   exit 1
               fi
               
-              if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
-                  EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
+              if chroot /host grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                  EXISTING_VALUE=$(chroot /host grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
                   UPDATED_VALUE=$(echo "$EXISTING_VALUE,$NEW_VALUE" | awk -F, '{for(i=1;i<=NF;i++) if(!a[$i]++) printf (i==1 ? "%s" : ",%s"),$i; print ""}')
-                  sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$UPDATED_VALUE\"|" "$ENV_FILE"
+                  chroot /host sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$UPDATED_VALUE\"|" "$ENV_FILE"
               else
-                  echo "$VAR_NAME=\"$NEW_VALUE\"" >> "$ENV_FILE"
+                  echo "$VAR_NAME=\"$NEW_VALUE\"" | chroot /host tee -a "$ENV_FILE"
               fi
               
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado para: $(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2-)"
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado para: $(chroot /host grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2-)"
           }
           
-          NO_PROXY_VALUES=$(cat "$CONFIG_DIR/NO_PROXY" 2>/dev/null || echo "")
-          no_proxy_VALUES=$(cat "$CONFIG_DIR/no_proxy" 2>/dev/null || echo "")
+          NO_PROXY_VALUES=$(chroot /host cat "$CONFIG_DIR/NO_PROXY" 2>/dev/null || echo "")
+          no_proxy_VALUES=$(chroot /host cat "$CONFIG_DIR/no_proxy" 2>/dev/null || echo "")
           
           if [ -n "$NO_PROXY_VALUES" ]; then
               update_proxy_vars "NO_PROXY" "$NO_PROXY_VALUES"
