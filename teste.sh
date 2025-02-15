@@ -31,66 +31,86 @@ spec:
         args:
         - |
           echo "========== 🔹 Iniciando configuração do DaemonSet =========="
-          
-          # Definir locais para armazenar os checksums
           ENV_CHECKSUM_FILE="/host/etc/env-config-checksum"
           CERTS_CHECKSUM_FILE="/host/etc/certs-config-checksum"
           CONFIG_DIR="/env-config"
           CERTS_DIR="/host/certs"
           
-          # Criar os arquivos de checksum se não existirem
           [ ! -f "$ENV_CHECKSUM_FILE" ] && echo "" > "$ENV_CHECKSUM_FILE"
           [ ! -f "$CERTS_CHECKSUM_FILE" ] && echo "" > "$CERTS_CHECKSUM_FILE"
           
-          # Ler os últimos checksums salvos
           LAST_ENV_CHECKSUM=$(cat "$ENV_CHECKSUM_FILE" 2>/dev/null || echo "")
           LAST_CERTS_CHECKSUM=$(cat "$CERTS_CHECKSUM_FILE" 2>/dev/null || echo "")
           
-          # Gerar checksums confiáveis apenas do conteúdo dos arquivos, ignorando metadados
-          CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f ! -name ".*" ! -name "*.tmp" ! -name "*~" | sort | xargs cat | sha256sum' | awk '{print $1}')
-          CURRENT_CERTS_CHECKSUM=$(chroot /host /bin/sh -c 'find /certs -type f ! -name ".*" ! -name "*.tmp" ! -name "*~" | sort | xargs cat | sha256sum' | awk '{print $1}')
+          CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f -exec cat {} \; | sha256sum' | awk '{print $1}')
+          CURRENT_CERTS_CHECKSUM=$(chroot /host /bin/sh -c 'find /host/certs -type f -exec cat {} \; | sha256sum' | awk '{print $1}')
           
-          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Estado atual dos ConfigMaps e Certificados lido com sucesso"
-          echo "Último checksum salvo das variáveis: $LAST_ENV_CHECKSUM"
-          echo "Último checksum salvo dos certificados: $LAST_CERTS_CHECKSUM"
-          echo "Checksum ATUAL das variáveis: $CURRENT_ENV_CHECKSUM"
-          echo "Checksum ATUAL dos certificados: $CURRENT_CERTS_CHECKSUM"
-          
-          RESTART_CONTAINERD=false
-          
-          # Atualizar variáveis se necessário
-          if [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🚀 Alteração detectada nas variáveis, aplicando atualização..."
-              chroot /host /bin/sh /tmp/update_env.sh
-              echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
-              RESTART_CONTAINERD=true
-          else
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Nenhuma alteração detectada nas variáveis, pulando atualização."
+          if [ "$CURRENT_ENV_CHECKSUM" = "$LAST_ENV_CHECKSUM" ] && [ "$CURRENT_CERTS_CHECKSUM" = "$LAST_CERTS_CHECKSUM" ]; then
+              echo "✅ Nenhuma alteração detectada nos ConfigMaps. Pulando execução."
+              exit 0
           fi
           
-          # Atualizar certificados se necessário
-          if [ "$CURRENT_CERTS_CHECKSUM" != "$LAST_CERTS_CHECKSUM" ]; then
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🚀 Alteração detectada nos certificados, aplicando atualização..."
-              mkdir -p /host/etc/pki/ca-trust/source/anchors/
-              cp -u /host/certs/* /host/etc/pki/ca-trust/source/anchors/
-              chroot /host update-ca-trust extract
-              echo "$CURRENT_CERTS_CHECKSUM" > "$CERTS_CHECKSUM_FILE"
-              RESTART_CONTAINERD=true
-          else
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Nenhuma alteração detectada nos certificados, pulando atualização."
-          fi
+          echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
+          echo "$CURRENT_CERTS_CHECKSUM" > "$CERTS_CHECKSUM_FILE"
           
-          # Reiniciar containerd apenas se necessário
-          if [ "$RESTART_CONTAINERD" = "true" ]; then
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Reiniciando containerd..."
-              chroot /host /bin/sh -c '
-              if command -v systemctl &> /dev/null; then
-                  systemctl restart containerd && echo "✅ containerd reiniciado com systemctl!" && exit 0
+          update_variable() {
+              VAR_NAME=$1
+              NEW_VALUE=$2
+              ENV_FILE="/host/etc/environment"
+              STATE_FILE="/host/tmp/${VAR_NAME}_managed_values"
+              
+              touch "$STATE_FILE"
+              VAR_NAME_UPPER=$(echo "$VAR_NAME" | tr '[:lower:]' '[:upper:]')
+              VAR_NAME_LOWER=$(echo "$VAR_NAME" | tr '[:upper:]' '[:lower:]')
+              
+              update_single_variable "$VAR_NAME_UPPER" "$NEW_VALUE" "$STATE_FILE"
+              update_single_variable "$VAR_NAME_LOWER" "$NEW_VALUE" "$STATE_FILE"
+          }
+          
+          update_single_variable() {
+              VAR_NAME=$1
+              NEW_VALUE=$2
+              STATE_FILE=$3
+              ENV_FILE="/host/etc/environment"
+              
+              EXISTING_VALUE=""
+              if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                  EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
               fi
-              kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
-              '
+              
+              MANAGED_VALUES=$(cat "$STATE_FILE" 2>/dev/null || echo "")
+              
+              declare -A VALUE_SET
+              for ITEM in $(echo "$EXISTING_VALUE" | tr ',' ' '); do
+                  VALUE_SET["$ITEM"]=1
+              done
+              
+              for ITEM in $(echo "$MANAGED_VALUES" | tr ',' ' '); do
+                  if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
+                      unset VALUE_SET["$ITEM"]
+                  fi
+              done
+              
+              for ITEM in $(echo "$NEW_VALUE" | tr ',' ' '); do
+                  VALUE_SET["$ITEM"]=1
+              done
+              
+              UPDATED_VALUE=$(IFS=','; echo "${!VALUE_SET[*]}")
+              
+              if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                  sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$UPDATED_VALUE\"|" "$ENV_FILE"
+              else
+                  echo "$VAR_NAME=\"$UPDATED_VALUE\"" >> "$ENV_FILE"
+              fi
+              
+              echo "$NEW_VALUE" > "$STATE_FILE"
+          }
+          
+          if [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ] || [ "$CURRENT_CERTS_CHECKSUM" != "$LAST_CERTS_CHECKSUM" ]; then
+              echo "🚀 Alteração detectada. Reiniciando containerd..."
+              chroot /host /bin/sh -c 'systemctl restart containerd || kill -HUP $(pidof containerd)'
           else
-              echo "✅ Nenhuma mudança relevante detectada. `containerd` não será reiniciado."
+              echo "✅ Nenhuma mudança relevante detectada. containerd não será reiniciado."
           fi
           
           echo "========== ✅ Configuração finalizada! =========="
@@ -110,8 +130,10 @@ spec:
       - name: certs
         configMap:
           name: certs-config
+          optional: true
       - name: env-config
         configMap:
           name: env-config
+          optional: true
       hostNetwork: true
       hostPID: true
