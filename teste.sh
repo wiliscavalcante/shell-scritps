@@ -30,90 +30,58 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          echo "========== 🔹 Iniciando configuração do DaemonSet =========="
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Iniciando configuração do DaemonSet"
           ENV_CHECKSUM_FILE="/host/etc/env-config-checksum"
-          CERTS_CHECKSUM_FILE="/host/etc/certs-config-checksum"
           CONFIG_DIR="/env-config"
-          CERTS_DIR="/host/certs"
           
           [ ! -f "$ENV_CHECKSUM_FILE" ] && echo "" > "$ENV_CHECKSUM_FILE"
-          [ ! -f "$CERTS_CHECKSUM_FILE" ] && echo "" > "$CERTS_CHECKSUM_FILE"
-          
           LAST_ENV_CHECKSUM=$(cat "$ENV_CHECKSUM_FILE" 2>/dev/null || echo "")
-          LAST_CERTS_CHECKSUM=$(cat "$CERTS_CHECKSUM_FILE" 2>/dev/null || echo "")
-          
           CURRENT_ENV_CHECKSUM=$(chroot /host /bin/sh -c 'find /env-config -type f -exec cat {} \; | sha256sum' | awk '{print $1}')
-          CURRENT_CERTS_CHECKSUM=$(chroot /host /bin/sh -c 'find /host/certs -type f -exec cat {} \; | sha256sum' | awk '{print $1}')
           
-          if [ "$CURRENT_ENV_CHECKSUM" = "$LAST_ENV_CHECKSUM" ] && [ "$CURRENT_CERTS_CHECKSUM" = "$LAST_CERTS_CHECKSUM" ]; then
-              echo "✅ Nenhuma alteração detectada nos ConfigMaps. Pulando execução."
+          if [ "$CURRENT_ENV_CHECKSUM" = "$LAST_ENV_CHECKSUM" ]; then
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Nenhuma alteração detectada nos ConfigMaps. Pulando execução."
               exit 0
           fi
           
           echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
-          echo "$CURRENT_CERTS_CHECKSUM" > "$CERTS_CHECKSUM_FILE"
           
-          update_variable() {
+          update_proxy_vars() {
               VAR_NAME=$1
               NEW_VALUE=$2
               ENV_FILE="/host/etc/environment"
-              STATE_FILE="/host/tmp/${VAR_NAME}_managed_values"
               
-              touch "$STATE_FILE"
-              VAR_NAME_UPPER=$(echo "$VAR_NAME" | tr '[:lower:]' '[:upper:]')
-              VAR_NAME_LOWER=$(echo "$VAR_NAME" | tr '[:upper:]' '[:lower:]')
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Atualizando $VAR_NAME"
               
-              update_single_variable "$VAR_NAME_UPPER" "$NEW_VALUE" "$STATE_FILE"
-              update_single_variable "$VAR_NAME_LOWER" "$NEW_VALUE" "$STATE_FILE"
-          }
-          
-          update_single_variable() {
-              VAR_NAME=$1
-              NEW_VALUE=$2
-              STATE_FILE=$3
-              ENV_FILE="/host/etc/environment"
-              
-              EXISTING_VALUE=""
               if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
                   EXISTING_VALUE=$(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
-              fi
-              
-              MANAGED_VALUES=$(cat "$STATE_FILE" 2>/dev/null || echo "")
-              
-              declare -A VALUE_SET
-              for ITEM in $(echo "$EXISTING_VALUE" | tr ',' ' '); do
-                  VALUE_SET["$ITEM"]=1
-              done
-              
-              for ITEM in $(echo "$MANAGED_VALUES" | tr ',' ' '); do
-                  if [[ -n "${VALUE_SET[$ITEM]}" ]]; then
-                      unset VALUE_SET["$ITEM"]
-                  fi
-              done
-              
-              for ITEM in $(echo "$NEW_VALUE" | tr ',' ' '); do
-                  VALUE_SET["$ITEM"]=1
-              done
-              
-              UPDATED_VALUE=$(IFS=','; echo "${!VALUE_SET[*]}")
-              
-              if grep -q "^$VAR_NAME=" "$ENV_FILE"; then
+                  UPDATED_VALUE=$(echo "$EXISTING_VALUE,$NEW_VALUE" | awk -F, '{for(i=1;i<=NF;i++) if(!a[$i]++) printf (i==1 ? "%s" : ",%s"),$i; print ""}')
                   sed -i "s|^$VAR_NAME=.*|$VAR_NAME=\"$UPDATED_VALUE\"|" "$ENV_FILE"
               else
-                  echo "$VAR_NAME=\"$UPDATED_VALUE\"" >> "$ENV_FILE"
+                  echo "$VAR_NAME=\"$NEW_VALUE\"" >> "$ENV_FILE"
               fi
-              
-              echo "$NEW_VALUE" > "$STATE_FILE"
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ $VAR_NAME atualizado para: $(grep "^$VAR_NAME=" "$ENV_FILE" | cut -d'=' -f2-)"
           }
           
-          if [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ] || [ "$CURRENT_CERTS_CHECKSUM" != "$LAST_CERTS_CHECKSUM" ]; then
-              echo "🚀 Alteração detectada. Reiniciando containerd..."
-              chroot /host /bin/sh -c 'systemctl restart containerd || kill -HUP $(pidof containerd)'
-          else
-              echo "✅ Nenhuma mudança relevante detectada. containerd não será reiniciado."
+          NO_PROXY_VALUES=$(cat "$CONFIG_DIR/NO_PROXY" 2>/dev/null || echo "")
+          no_proxy_VALUES=$(cat "$CONFIG_DIR/no_proxy" 2>/dev/null || echo "")
+          
+          if [ -n "$NO_PROXY_VALUES" ]; then
+              update_proxy_vars "NO_PROXY" "$NO_PROXY_VALUES"
+              update_proxy_vars "no_proxy" "$NO_PROXY_VALUES"
           fi
           
-          echo "========== ✅ Configuração finalizada! =========="
+          if [ -n "$no_proxy_VALUES" ]; then
+              update_proxy_vars "NO_PROXY" "$no_proxy_VALUES"
+              update_proxy_vars "no_proxy" "$no_proxy_VALUES"
+          fi
+          
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Variáveis de proxy configuradas com sucesso!"
+          
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Reiniciando containerd..."
+          chroot /host /bin/sh -c 'systemctl restart containerd || kill -HUP $(pidof containerd)'
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ containerd reiniciado!"
+          
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Configuração finalizada!"
           exec sleep infinity
         volumeMounts:
         - name: host-root
