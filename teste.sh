@@ -95,23 +95,29 @@ spec:
           rm -f $TEMP_LIST
           mv $TEMP_ENV /etc/environment
 
-          # **Executa o source para recarregar as variáveis no sistema**
-          chroot /host /bin/sh -c 'export $(grep -v "^#" /etc/environment | xargs)'
+          # **Executa o export para recarregar as variáveis no sistema**
+          # chroot /host /bin/sh -c 'export $(grep -v "^#" /etc/environment | xargs)'
           echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Variáveis de ambiente recarregadas no sistema."
           EOF
 
           chmod +x /host/tmp/update_env.sh
 
-          echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
-          if [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
+            echo "========== 🔹 Verificando alterações nas variáveis de ambiente =========="
+            if [ "$CURRENT_ENV_CHECKSUM" != "$LAST_ENV_CHECKSUM" ]; then
               echo "🚀 Alteração detectada nas variáveis de ambiente. Aplicando reconfiguração..."
               chroot /host /bin/sh /tmp/update_env.sh
               echo "$CURRENT_ENV_CHECKSUM" > "$ENV_CHECKSUM_FILE"
+              
+              # **Recarregar variáveis no nó do EKS**
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔹 Recarregando variáveis de ambiente no nó..."
+              chroot /host /bin/sh -c 'export $(grep -v "^#" /etc/environment | xargs)'
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Variáveis de ambiente aplicadas ao nó do EKS."
+              
               RESTART_CONTAINERD=true
-          else
+            else
               echo "✅ Nenhuma alteração detectada nas variáveis de ambiente. Pulando esta etapa."
-          fi
-
+            fi
+           
           echo "========== 🔹 Verificando alterações nos certificados =========="
           if [ "$CURRENT_CERTS_CHECKSUM" != "$LAST_CERTS_CHECKSUM" ]; then
               echo "🚀 Alteração detectada nos certificados. Aplicando reconfiguração..."
@@ -126,7 +132,7 @@ spec:
           fi
 
           echo "========== 🔹 Verificando necessidade de reinicialização do containerd =========="
-          if [ "$RESTART_CONTAINERD" = "true" ]; then
+          if [ "${RESTART_CONTAINERD:-false}" = "true" ]; then
               echo "🔹 Reiniciando containerd..."
               chroot /host /bin/sh -c '
               if command -v systemctl &> /dev/null; then
@@ -135,7 +141,7 @@ spec:
               kill -HUP $(pidof containerd) && echo "✅ containerd recarregado via HUP!" || echo "❌ Falha ao reiniciar containerd!"
               '
           else
-              echo "✅ Nenhuma mudança relevante detectada. `containerd` não será reiniciado."
+              echo "✅ Nenhuma mudança relevante detectada. containerd não será reiniciado."
           fi
 
           echo "========== ✅ Configuração finalizada! =========="
