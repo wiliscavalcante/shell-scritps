@@ -1,0 +1,147 @@
+additionalContainerPorts:
+- 5001
+- 5002
+- 5003
+additionalServicePorts:
+- containerPort: 5001
+  port: 5001
+  type: ClusterIP
+- containerPort: 5002
+  port: 5002
+  type: ClusterIP
+- containerPort: 5003
+  port: 5003
+  type: ClusterIP
+additionalVirtualServices:
+- destination:
+    port: 5001
+  host: dockerhub.empresa.com
+  match:
+  - uri:
+      exact: /v2/
+  - uri:
+      prefix: /v2
+- destination:
+    port: 5002
+  host: registry.empresa.com
+  match:
+  - uri:
+      exact: /v2/
+  - uri:
+      prefix: /v2
+- destination:
+    port: 5003
+  host: registry-snapshot.empresa.com
+  match:
+  - uri:
+      exact: /v2/
+  - uri:
+      prefix: /v2
+affinity: {}
+app:
+  labels:
+    gearr: "0000"
+autoscaling:
+  enabled: false
+  maxReplicas: 5
+  minReplicas: 2
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: null
+containerPort: 8081
+deployment:
+  host: nexus.empresa.com
+  production:
+    image:
+      tag: 3.77.2
+    replicaCount: 1
+  pullPolicy: IfNotPresent
+  repository: 488558083821.dkr.ecr.sa-east-1.amazonaws.com/nexus
+  strategy:
+    type: RollingUpdate
+envVars:
+  HTTP_PROXY: http://proxy.empresa.com:3128
+  HTTPS_PROXY: http://proxy.empresa.com:3128
+  INSTALL4J_ADD_VM_PARAMS: -Xms2703m -Xmx2703m -XX:MaxDirectMemorySize=2703m -XX:+UnlockExperimentalVMOptions
+    -XX:+UseContainerSupport -Djava.util.prefs.userRoot=/nexus-data/javaprefs
+  NEXUS_DATASTORE_DB_TYPE: postgresql
+  NEXUS_DATASTORE_ENABLED: "true"
+  NEXUS_DATASTORE_NEXUS_JDBCURL: jdbc:postgresql://agro.cluster-crcepn4ytf4h.sa-east-1.rds.amazonaws.com:5432/nexus_agri
+  NEXUS_SECRETS_KEY_FILE: /nexus-data/encryption-key.json
+  NEXUS_SECURITY_RANDOMPASSWORD: "true"
+  NO_PROXY: localhost,127.0.0.1,172.20.0.0/16,100.64.0.0/16,10.0.0.0/8,169.254.169.254,.internal,.local,.s3.amazonaws.com,.s3.us-east-1.amazonaws.com,api.ecr.us-east-1.amazonaws.com,dkr.ecr.us-east-1.amazonaws.com,.ec2.us-east-1.amazonaws.com,.eks.amazonaws.com,.us-east-1.eks.amazonaws.com
+  http_proxy: http://spobrproxy.serasa.intranet:3128
+  https_proxy: http://spobrproxy.serasa.intranet:3128
+  no_proxy: localhost,127.0.0.1,172.20.0.0/16,100.64.0.0/16,10.0.0.0/8,169.254.169.254,,.internal,.local,.s3.amazonaws.com,.s3.us-east-1.amazonaws.com,api.ecr.us-east-1.amazonaws.com,dkr.ecr.us-east-1.amazonaws.com,.ec2.us-east-1.amazonaws.com,.eks.amazonaws.com,.us-east-1.eks.amazonaws.com
+fullnameOverride: nexus
+initContainers:
+- command:
+  - sh
+  - -c
+  - chown -R 200:200 /nexus-data && chmod -R 777 /nexus-data
+  image: busybox
+  name: fix-permissions
+  volumeMounts:
+  - mountPath: /nexus-data
+    name: nexus-data
+livenessProbe:
+  failureThreshold: 6
+  httpGet:
+    path: /service/rest/v1/status/writable
+    port: 8081
+  initialDelaySeconds: 900
+  periodSeconds: 60
+  timeoutSeconds: 10
+nameOverride: nexus
+nodeSelector: {}
+podAnnotations: {}
+readinessProbe:
+  failureThreshold: 6
+  httpGet:
+    path: /service/rest/v1/status
+    port: 8081
+  initialDelaySeconds: 900
+  periodSeconds: 30
+  tcpSocket: null
+  timeoutSeconds: 10
+resources:
+  limits:
+    cpu: "4"
+    memory: 8Gi
+  requests:
+    cpu: "4"
+    memory: 8Gi
+secretsRefs:
+- nexus-postgres-secret
+securityContext: {}
+service:
+  containerPort: 8081
+  name: api
+  port: 80
+  type: ClusterIP
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::xxxxxxxx:role/BURoleForNexusPROD
+  create: true
+  name: nexus
+startupProbe:
+  failureThreshold: 90
+  httpGet:
+    path: /service/rest/v1/status
+    port: 8081
+  periodSeconds: 10
+  timeoutSeconds: 5
+tolerations: []
+virtualService:
+  enabled: true
+  match:
+  - uri:
+      exact: /
+  - uri:
+      prefix: /
+volumeMounts:
+- mountPath: /nexus-data
+  name: nexus-data
+volumes:
+- name: nexus-data
+  persistentVolumeClaim:
+    claimName: nexus-data
