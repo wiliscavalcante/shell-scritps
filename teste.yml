@@ -117,4 +117,8 @@ frontend othree_front
 
     default_backend deny_all
 
+curl -H "Host: othree.datalabserasaexperian.com.br" http://localhost:9878/
+
+    
+
       
