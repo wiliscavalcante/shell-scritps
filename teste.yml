@@ -106,3 +106,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+---
+# HTTP - Porta 9878 (Retrocompatibilidade com othree)
+frontend othree_front
+    bind *:9878
+    mode http  # IMPORTANTE para que a ACL funcione corretamente
+
+    acl is_othree hdr(host) -i othree.datalabserasaexperian.com.br
+    use_backend minio_api if is_othree
+
+    default_backend deny_all
+
+      
