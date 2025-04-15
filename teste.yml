@@ -107,17 +107,32 @@ services:
       timeout: 5s
       retries: 3
 ---
-# HTTP - Porta 9878 (Retrocompatibilidade com othree)
 frontend othree_front
     bind *:9878
-    mode http  # IMPORTANTE para que a ACL funcione corretamente
+    mode http
 
+    # Aceita o host antigo da AWS CLI
     acl is_othree hdr(host) -i othree.datalabserasaexperian.com.br
-    use_backend minio_api if is_othree
+
+    # Força o Host para algo que o MinIO aceite
+    use_backend minio_api_force_host if is_othree
 
     default_backend deny_all
+backend minio_api_force_host
+    balance leastconn
+    option httpchk
+    http-check send meth GET uri /minio/health/ready ver HTTP/1.1 hdr Host minio.local
+    http-check expect status 200
 
-curl -H "Host: othree.datalabserasaexperian.com.br" http://localhost:9878/
+    # Aqui forçamos o Host para o esperado
+    http-request set-header Host agri-s3.serasa.intranet
+
+    server s1 spobragro13:9000 check inter 5s fall 2 rise 1
+    server s2 spobragro14:9000 check inter 5s fall 2 rise 1
+    server s3 spobragro15:9000 check inter 5s fall 2 rise 1
+    server s4 spobragro16:9000 check inter 5s fall 2 rise 1
+curl -v -H "Host: othree.datalabserasaexperian.com.br" http://localhost:9878/
+
 
     
 
