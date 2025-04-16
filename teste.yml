@@ -107,31 +107,123 @@ services:
       timeout: 5s
       retries: 3
 ---
+global
+    log stdout format raw daemon
+    tune.bufsize 32768
+    tune.maxrewrite 1024
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  log-health-checks
+    option  http-server-close
+    timeout connect 5s
+    timeout client  30s
+    timeout server  30s
+
+# =======================================
+# HTTP - Porta 9878 (SUPORTE OTHREE)
+# =======================================
 frontend othree_front
     bind *:9878
-    mode http
-
-    # Aceita o host antigo da AWS CLI
+    mode http  # ESSENCIAL: permite analisar o header Host
     acl is_othree hdr(host) -i othree.datalabserasaexperian.com.br
-
-    # Força o Host para algo que o MinIO aceite
-    use_backend minio_api_force_host if is_othree
-
+    use_backend minio_api_othree if is_othree
     default_backend deny_all
-backend minio_api_force_host
+
+# =======================================
+# HTTP - Porta 80 (sem alterações)
+# =======================================
+frontend http_front
+    bind *:80
+
+    acl is_console hdr(host) -i agri-minio-console.serasa.intranet
+    acl is_status  hdr(host) -i haproxy-status.serasa.intranet
+    acl is_api     hdr(host) -i agri-s3.serasa.intranet
+
+    redirect scheme https if is_console
+    redirect scheme https if is_status
+
+    use_backend minio_api if is_api
+    default_backend deny_all
+
+# =======================================
+# HTTPS - Porta 443 (console/status)
+# =======================================
+frontend https_front
+    bind *:443 ssl crt /usr/local/etc/haproxy/certs/serasa.intranet.pem
+
+    acl is_console hdr(host) -i agri-minio-console.serasa.intranet
+    acl is_status  hdr(host) -i haproxy-status.serasa.intranet
+
+    use_backend minio_console if is_console
+    use_backend haproxy_stats if is_status
+    default_backend deny_all
+
+# =======================================
+# Backend da API S3 padrão (porta 9000)
+# =======================================
+backend minio_api
     balance leastconn
     option httpchk
     http-check send meth GET uri /minio/health/ready ver HTTP/1.1 hdr Host minio.local
     http-check expect status 200
 
-    # Aqui forçamos o Host para o esperado
-    http-request set-header Host agri-s3.serasa.intranet
+    server s1 spobragro13:9000 check inter 5s fall 2 rise 1
+    server s2 spobragro14:9000 check inter 5s fall 2 rise 1
+    server s3 spobragro15:9000 check inter 5s fall 2 rise 1
+    server s4 spobragro16:9000 check inter 5s fall 2 rise 1
+
+# =======================================
+# Backend ESPECÍFICO para othree (porta 9000)
+# Reescreve o Host para garantir compatibilidade
+# =======================================
+backend minio_api_othree
+    balance leastconn
+    option httpchk
+    http-check send meth GET uri /minio/health/ready ver HTTP/1.1 hdr Host minio.local
+    http-check expect status 200
+
+    http-request set-header Host agri-s3.serasa.intranet  # ESSENCIAL para o MinIO aceitar
 
     server s1 spobragro13:9000 check inter 5s fall 2 rise 1
     server s2 spobragro14:9000 check inter 5s fall 2 rise 1
     server s3 spobragro15:9000 check inter 5s fall 2 rise 1
     server s4 spobragro16:9000 check inter 5s fall 2 rise 1
+
+# =======================================
+# Backend do Console Web via HTTPS
+# =======================================
+backend minio_console
+    balance leastconn
+    option httpchk GET /minio/health/ready
+    http-check expect status 200
+
+    server s1 spobragro13:9001 check inter 5s fall 2 rise 1
+    server s2 spobragro14:9001 check inter 5s fall 2 rise 1
+    server s3 spobragro15:9001 check inter 5s fall 2 rise 1
+    server s4 spobragro16:9001 check inter 5s fall 2 rise 1
+
+# =======================================
+# Backend do painel de status
+# =======================================
+backend haproxy_stats
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats show-node
+    stats auth admin:admin
+
+# =======================================
+# Backend padrão para requisições negadas
+# =======================================
+backend deny_all
+    http-request deny deny_status 403
+
 curl -v -H "Host: othree.datalabserasaexperian.com.br" http://localhost:9878/
+
 
 
     
