@@ -171,3 +171,119 @@ RUN make install-dev-tools-too
 
 # Use the entry point script.
 ENTRYPOINT ["/agrilearn_app/downloader/entrypoint.sh"]
+
+###########
+FROM dockerhub.agribusiness-brain.br.experian.eeca/ubuntu:22.04
+
+LABEL name="agrilearn-sits-bert"
+LABEL description="Agrilearn crop classification model based on SITS-BERT architecture."
+LABEL authors="RSM Products Team"
+
+# ------------------------------
+# ARGs e variáveis de ambiente
+# ------------------------------
+ARG USER_NAME=ec2-user
+ARG USER_PASSWORD=ec2-user
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG no_proxy
+ARG IS_DEVELOPMENT
+
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    NO_PROXY=${NO_PROXY} \
+    no_proxy=${NO_PROXY} \
+    TZ=America/Sao_Paulo \
+    UV_INSECURE_HOST=nexus.agribusiness-brain.br.experian.eeca \
+    UV_INDEX_STRATEGY=unsafe-best-match \
+    IS_DEVELOPMENT=${IS_DEVELOPMENT} \
+    SHELL=/bin/bash \
+    AGRILEARN_WEIGHTS_PATH=/agrilearn_app/weights/ \
+    AGRILEARN_ENV_PATH=/agrilearn_app/.env \
+    PIP_INDEX_URL=https://nexus.agribusiness-brain.br.experian.eeca/repository/pypi-hub/simple \
+    PIP_TRUSTED_HOST=nexus.agribusiness-brain.br.experian.eeca
+
+# ------------------------------
+# Configuração básica e pacotes comuns
+# ------------------------------
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
+    apt-get update && apt-get install --yes --no-install-recommends \
+        gnupg \
+        software-properties-common \
+        python3-pip \
+        python3-dev \
+        python-is-python3 \
+        sudo \
+        make \
+        git \
+        wget \
+        curl \
+        libgomp1 \
+        netcat \
+        vim \
+        vim-gtk3 \
+        nano \
+        unzip \
+        tree && \
+    rm -rf /var/lib/apt/lists/*
+
+# ------------------------------
+# Criação de usuário e ajustes de ambiente
+# ------------------------------
+RUN groupadd --gid $USER_GID $USER_NAME && \
+    useradd --uid $USER_UID --gid $USER_GID --create-home $USER_NAME && \
+    echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    adduser $USER_NAME sudo && \
+    chown -R $USER_NAME:$USER_NAME /usr/local/ && \
+    touch /home/$USER_NAME/.sudo_as_admin_successful && \
+    sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /home/$USER_NAME/.bashrc
+
+# ------------------------------
+# Troca para o novo usuário
+# ------------------------------
+USER $USER_NAME
+WORKDIR /agrilearn_app
+
+# ------------------------------
+# Preparação inicial do app
+# ------------------------------
+COPY ../.env.default /agrilearn_app/.env
+
+RUN pip install --upgrade pip && pip install uv
+
+ENV PATH=$PATH:/home/${USER_NAME}/.local/bin
+
+# ------------------------------
+# Etapas específicas do módulo "downloader"
+# ------------------------------
+ENV MODULE_NAME=download \
+    GEE_KEY_PATH=/agrilearn_app/downloader/gee_key_dataops.json \
+    GEE_PROJECT_NAME= \
+    EOPATCHES_CACHE=s3://agrilearn-eopatches-cache/cache_default/ \
+    SENTINEL_CACHE_FOLDER=/agrilearn_app/cache/ \
+    SENTINEL_MIRROR_BUCKET_NAME=rsm-products-sentinel-mirror
+
+WORKDIR /agrilearn_app/downloader
+COPY ../ /agrilearn_app/downloader
+
+RUN sudo chown -R $(whoami):$(whoami) /agrilearn_app && \
+    sudo add-apt-repository ppa:ubuntugis/ppa --yes && \
+    sudo apt-get update && \
+    sudo apt-get install --yes \
+        gcc \
+        graphviz \
+        libgomp1 \
+        libgl1 \
+        gpg-agent \
+        gdal-bin \
+        libgdal-dev && \
+    sudo rm -rf /var/lib/apt/lists/* && \
+    pip3 install GDAL==$(gdal-config --version)
+USER root
+RUN make install-dev-tools-too
+USER $USER_NAME
+ 
+ENTRYPOINT ["/agrilearn_app/downloader/entrypoint.sh"]
