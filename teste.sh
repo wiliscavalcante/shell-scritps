@@ -1,416 +1,222 @@
 #!/bin/bash
+echo "$(date) - Launch template startup script started!"
 
-# Função para registrar logs das ações do script
-log() {
-  echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
-}
+# configure access to the outside internet through the proxy
+export http_proxy="http://usaeast-proxy.us.experian.eeca:9595"
+export https_proxy="http://usaeast-proxy.us.experian.eeca:9595"
+export no_proxy=".experian.eeca,localhost,127.0.0.1,169.254.169.254,api,testserver,internal-brain-lb-platform-dev-1449535370.sa-east-1.elb.amazonaws.com"
+export PIP_INDEX_URL="https://nexus.agribusiness-brain.br.experian.eeca/repository/pypi-hub/simple"
+export PIP_TRUSTED_HOST="nexus.agribusiness-brain.br.experian.eeca"
+ 
+# Importando Certificado do Nexus
+echo "$(date) - Downloading cert.pem ..."
+aws s3 cp s3://agribusiness-ec2-certs/cert_nexus.pem /tmp/cert.pem
 
-# Função para verificar se o comando foi executado com sucesso
-check_command() {
-  if [ $? -ne 0 ]; then
-    log "Erro ao executar: $1"
-    exit 1
-  fi
-}
+# Atualiza os pacotes do sistema
+echo "$(date) - updating system packages ..."
+sudo yum update -y
 
-# Passo 1: Criar o arquivo de configuração do proxy em /etc/profile.d/
-log "Criando o arquivo /etc/profile.d/proxy.sh"
+# Instalação do Git
+echo "$(date) - installing GIT ..."
+sudo yum install git -y
 
-if [ ! -f /etc/profile.d/proxy.sh ] || ! grep -q "proxy-on" /etc/profile.d/proxy.sh; then
-   tee /etc/profile.d/proxy.sh > /dev/null << 'EOF'
-function urlencode() {
-    local encoded=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1]))" $1)
-    echo $encoded
-}
+# Instalação do Docker
+echo "$(date) - Installing docker ..."
+sudo yum install docker -y
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -a -G docker ec2-user
 
-function proxy-off() {
-    unset proxy http_proxy HTTP_PROXY https_proxy HTTPS_PROXY empresa_proxy
-}
+# Instalação do docker-compose
+echo "$(date) - Installing docker-compose ..."
+python3.11 -m pip install --upgrade pip
+python3.11 -m pip install docker==6.1.3 requests==2.31.0 PyYAML==5.3.1 docker-compose==1.29.2
 
-function proxy-on() {
-    username=$1
-    if [ -z $username ]; then
-        proxy=http://spobrproxy.serasa.intranet:3128
-    else
-        echo "Please, input your password."
-        read -s password
-        encoded_password=$(urlencode $password)
-        proxy=http://$username:$encoded_password@spobrproxy.serasa.intranet:3128
+
+# install AWS EFS setup lib
+echo "$(date) - Installing amazon-efs-utils ..."
+sudo yum install -y amazon-efs-utils.noarch
+
+# Faz backup do conteúdo da home do usuário ec2-user para /tmp
+echo "$(date) - Backup of the /home folder ..."
+sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home .
+
+# Configuração dos dispositivos e pontos de montagem
+DEVICES=("/dev/nvme1n1")
+MOUNT_POINTS=("/home")
+
+# Loop para formatar e montar os dispositivos
+for ((i=0; i<${#DEVICES[@]}; i++)); do
+    DEVICE=${DEVICES[$i]}
+    MOUNT_POINT=${MOUNT_POINTS[$i]}
+
+    # Verifica se o dispositivo já está formatado como XFS
+    if ! sudo xfs_info "$DEVICE" >/dev/null 2>&1; then
+        sudo mkfs.xfs "$DEVICE"
     fi
-    http_proxy=$proxy
-    HTTP_PROXY=$proxy
-    https_proxy=$proxy
-    HTTPS_PROXY=$proxy
-    export proxy http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-}
 
-function no_proxy(){
-  no_proxy="dockerhub.datalabserasaexperian.com.br,registry.datalabserasaexperian.com.br,pypi.datalabserasaexperian.com.br,maven.datalabserasaexperian.com.br,packages.datalabserasaexperian.com.br,10.*"
-  export no_proxy
-}
+    # Cria o diretório de ponto de montagem, se não existir
+    if [ ! -d "$MOUNT_POINT" ]; then
+        sudo mkdir "$MOUNT_POINT"
+    fi
 
-if [ -z ${no_proxy} ]; then
-  no_proxy
-fi
-EOF
-  check_command "Criar /etc/profile.d/proxy.sh"
-   chmod +x /etc/profile.d/proxy.sh
-  check_command "Configurar permissões para /etc/profile.d/proxy.sh"
-  log "Arquivo /etc/profile.d/proxy.sh criado e configurado."
-else
-  log "Arquivo /etc/profile.d/proxy.sh já existe e está configurado."
-fi
+    # Monta o dispositivo no ponto de montagem
+    sudo mount "$DEVICE" "$MOUNT_POINT"
 
-if ! env | grep -q "HTTP_PROXY"; then
-  log "Carregando o script /etc/profile.d/proxy.sh no ambiente."
-  source /etc/profile.d/proxy.sh
-  check_command "Carregar /etc/profile.d/proxy.sh"
-else
-  log "Proxy já configurado no ambiente."
-fi
+    # Obtém o UUID do dispositivo
+    UUID=$(sudo blkid -s UUID -o value "$DEVICE")
 
-# Passo 2: Desativar o swap, se estiver ativo
-if free | awk '/^Swap:/ {exit !$2}'; then
-  log "Swap ativo. Desativando swap..."
-   swapoff -a
-  check_command "Desativar swap"
-   sed -i.bak '/swap/d' /etc/fstab
-  check_command "Remover swap do /etc/fstab"
-  log "Swap desativado e removido do /etc/fstab."
-else
-  log "Swap já está desativado."
-fi
-
-# Passo 3: Habilitar o encaminhamento de pacotes IPv4, se necessário
-log "Verificando o encaminhamento de pacotes IPv4"
-
-if ! sysctl net.ipv4.ip_forward | grep -q "1"; then
-  log "Habilitando net.ipv4.ip_forward"
-   tee /etc/sysctl.d/k8s.conf > /dev/null << 'EOF'
-net.ipv4.ip_forward = 1
-EOF
-  check_command "Configurar net.ipv4.ip_forward"
-   sysctl --system
-  check_command "Aplicar configuração do sysctl"
-  log "Encaminhamento de pacotes IPv4 habilitado."
-else
-  log "Encaminhamento de pacotes IPv4 já está habilitado."
-fi
-
-# Passo 4: Carregar o módulo br_netfilter
-log "Verificando se o módulo br_netfilter está carregado"
-if ! lsmod | grep -q br_netfilter; then
-  log "Carregando o módulo br_netfilter"
-   modprobe br_netfilter
-  check_command "Carregar módulo br_netfilter"
-  echo "br_netfilter" |  tee /etc/modules-load.d/br_netfilter.conf
-  check_command "Configurar persistência do módulo br_netfilter"
-  log "Módulo br_netfilter carregado e configurado para persistência."
-else
-  log "Módulo br_netfilter já está carregado."
-fi
-
-# Passo 5: Configurar nameservers em /etc/resolv.conf
-log "Editando /etc/resolv.conf para configurar nameservers"
-
-if grep -q "^nameserver 127.0.0.1" /etc/resolv.conf; then
-  log "Comentando o nameserver 127.0.0.1"
-   sed -i.bak 's/^nameserver 127.0.0.1/# &/' /etc/resolv.conf
-  check_command "Comentar nameserver 127.0.0.1"
-fi
-
-# Adicionar novos nameservers se não estiverem presentes
-for ns in 10.96.215.13 10.96.216.4 10.96.216.20; do
-  if ! grep -q "nameserver $ns" /etc/resolv.conf; then
-    log "Adicionando nameserver $ns"
-    echo "nameserver $ns" |  tee -a /etc/resolv.conf
-    check_command "Adicionar nameserver $ns"
-  fi
+    # Adiciona uma entrada no /etc/fstab para montagem automática
+    if ! sudo grep -q "$UUID" /etc/fstab; then
+        echo "UUID=$UUID $MOUNT_POINT xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
+    fi
 done
 
-log "Configuração do /etc/resolv.conf concluída."
+# Comenta a linha do fstab referente a montagem padrao do /home
+# para que depois do reboot ele nao tente montar a home assim, e sim do jeito definido acima
+sudo sed -i '/^\/dev\/mapper\/rootvg-home/s//#&/' /etc/fstab
 
-# Passo 6: Configurar o repositório Kubernetes, se necessário
-log "Verificando a configuração do repositório Kubernetes"
+# Restaura o conteúdo do backup na nova home do usuário ec2-user
+sudo tar -xzf "/tmp/ec2-user_backup.tar.gz" -C /home
 
-repo_file="/etc/yum.repos.d/kubernetes.repo"
-expected_baseurl="https://pkgs.k8s.io/core:/stable:/v1.31/rpm/"
+# Remove o arquivo de backup
+sudo rm "/tmp/ec2-user_backup.tar.gz"
 
-if [ ! -f "$repo_file" ] || ! grep -q "$expected_baseurl" "$repo_file"; then
-  log "Configurando o repositório Kubernetes."
-   tee "$repo_file" > /dev/null << 'EOF'
-[kubernetes]
-name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/
-enabled=1
-gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
-exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+# TODO instalacao do brew nao esta funcionando! consertar!
+# Instala o brew
+# sudo yum groupinstall 'Development Tools' -y
+# sudo runuser -l ec2-user -c "export NONINTERACTIVE=1 && /bin/bash -c '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'"
+# sudo su ec2-user -c "echo 'eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv)' >> /home/ec2-user/.bashrc" -s /bin/sh
+# sudo su ec2-user -c "eval '$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)'" -s /bin/sh
+
+# Configura variaveis de ambiente
+conteudo_arquivo=$(cat <<EOF
+#!/bin/bash
+
+export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew";
+export HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar";
+export HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew";
+export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin${PATH+:$PATH}";
+export MANPATH="/home/linuxbrew/.linuxbrew/share/man${MANPATH+:$MANPATH}:";
+export INFOPATH="/home/linuxbrew/.linuxbrew/share/info:${INFOPATH:-}";
+export http_proxy=${http_proxy};
+export https_proxy=${https_proxy};
+export no_proxy=${no_proxy};
+export PIP_INDEX_URL=${PIP_INDEX_URL};
+export PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST};
+
 EOF
-  check_command "Configurar repositório Kubernetes"
-  log "Repositório Kubernetes configurado."
+)
+echo "$conteudo_arquivo" | sudo tee /etc/profile.d/variaveis.sh > /dev/null
+sudo chmod +x /etc/profile.d/variaveis.sh
+
+# Configura montagem  do EFS no filesystem da instancia:
+# pega o efs id a ser montado
+export KEYNAME=$(ec2-metadata --public-keys | grep keyname | sed 's/[^:]*//' | cut -c 2-)
+declare -A keyname_to_efs_id=( \
+    ["pedro-pimenta"]="fs-0916fec4bb939d013" \
+    ["zeni"]="fs-04828e4d73c735edf" \
+    ["luis-macedo-virginia"]="fs-0a2b653604b1b3ad3" \
+    ["mateus-silva"]="fs-0d0a7a86c67fc3a93" \
+    ["alex-araujo-sbx-virginia"]="fs-01ba7578331a69bf8" \
+    ["lucimara-bragagnolo"]="fs-00b79b5936842f735" \
+    ["mislene-nunes"]="fs-0d0a7a86c67fc3a93" \
+    ["kenia_santos"]="fs-0d0a7a86c67fc3a93" \
+    ["mbalboni"]="fs-0d0a7a86c67fc3a93" \
+    ["gabriel-ferreira-virginia"]="fs-031d26424db7c73e3" \
+    ["allan-lima"]="fs-0e178674a147e0161" \
+    ["nicksson-virginia"]="fs-0f57e8edf7f5beba4" \
+    ["cleverton-santana"]="fs-0e27965f52b06a725" \
+    ["alves-aws-key"]="fs-03d9493157dd84689" \
+    ["alvaro_virginia"]="fs-0e0effe7f5ca1dd89" \
+)
+export EFS_ID=${keyname_to_efs_id[${KEYNAME}]}
+# cria ponto de montagem do EFS
+sudo mkdir /home/ec2-user/efs
+# registra informacao de montagem (qual volume, onde montar, configuracoes)
+sudo echo "$EFS_ID:/ /home/ec2-user/efs efs _netdev,noresvport,tls,iam 0 0" | sudo tee -a /etc/fstab
+
+# Move a pasta do Docker para dentro de /home para não
+# consumir espaço do disco onde a root está montada
+sudo service docker stop
+sudo mv /var/lib/docker /home/docker
+sudo ln -s /home/docker /var/lib/docker
+sudo service docker start
+
+# Define a permissão correta para o usuário ec2-user no ponto de montagem
+sudo chown -R ec2-user:ec2-user /home/ec2-user
+
+# Monta volumes descritos em /etc/fstab
+echo "$(date) - Mounting volumes (including EFS)..."
+sudo mount -a
+
+### DNF UPDATE ####
+echo "$(date) - Setting up cronjob for dnf update ..."
+bash -c 'cat <<EOF > /usr/local/update_ec2.sh
+#!/bin/bash
+
+temp_file=\$(mktemp)
+
+# Executar dnf check-update e salvar a saida, foi preciso adicionar 2>&1 para salvar o warning
+dnf check-update --refresh > "\$temp_file" 2>&1
+
+# Extrair a versão mais recente 
+latest_version=\$(grep -oP "Version \K\d+\.\d+\.\d+" "\$temp_file" | tail -n 1)
+
+rm "\$temp_file"
+
+if [ -n "\$latest_version" ]; then
+    # Atualizar os pacotes usando dnf
+    sudo dnf upgrade --releasever=\$latest_version -y
+
+    # Limpar cache do dnf
+    sudo dnf clean all
+
+    echo "Atualização para a versão \$latest_version concluída."
 else
-  log "Repositório Kubernetes já está configurado corretamente."
+    echo "Nenhuma atualização disponível."
 fi
 
-# Passo 7: Configurar o repositório CRI-O, se necessário
-log "Verificando a configuração do repositório CRI-O"
+# Executar o comando yum update
+sudo yum update -y
 
-cri_o_repo_file="/etc/yum.repos.d/cri-o.repo"
-cri_o_expected_baseurl="https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.31/rpm/"
-
-if [ ! -f "$cri_o_repo_file" ] || ! grep -q "$cri_o_expected_baseurl" "$cri_o_repo_file"; then
-  log "Configurando o repositório CRI-O."
-   tee "$cri_o_repo_file" > /dev/null << EOF
-[cri-o]
-name=CRI-O
-baseurl=https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.31/rpm/
-enabled=1
-gpgcheck=1
-gpgkey=https://pkgs.k8s.io/addons:/cri-o:/stable:/v1.31/rpm/repodata/repomd.xml.key
 EOF
-  check_command "Configurar repositório CRI-O"
-  log "Repositório CRI-O configurado."
-else
-  log "Repositório CRI-O já está configurado corretamente."
-fi
+chmod +x /usr/local/update_ec2.sh
+(crontab -l ; echo "0 12 * * 1,4 /bin/bash /usr/local/update_ec2.sh") | crontab -
+(crontab -l ; echo "0 18 * * 1,4 /bin/bash /usr/local/update_ec2.sh") | crontab -'
 
-# Passo 8: Instalar dependências de pacotes, se necessário
-log "Verificando se o pacote 'container-selinux' está instalado"
+### DNF UPDATE ####
+# Ajusta o dono do EFS montado para ser acessivel pelo ec2-user
+sudo chown -R ec2-user:ec2-user /home/ec2-user/efs
 
-if ! rpm -q container-selinux > /dev/null 2>&1; then
-  log "Instalando o pacote 'container-selinux'."
-   dnf install -y container-selinux
-  check_command "Instalar container-selinux"
-  log "Pacote 'container-selinux' instalado."
-else
-  log "Pacote 'container-selinux' já está instalado."
-fi
+# TODO instalacao do brew nao esta funcionando
+# Instala htop e tmux
+# brew install htop tmux
 
-# Passo 9: Configurar o repositório ZFS, se necessário
-log "Verificando a configuração do repositório ZFS"
+# cria arquivo de configuração do proxy HTTP e HTTPS
+echo "$(date) - Setting up proxy env vars for docker ..."
+sudo mkdir -p /etc/systemd/system/docker.service.d/
+echo -e "[Service]\nEnvironment=\"HTTP_PROXY=${http_proxy}\"\nEnvironment=\"HTTPS_PROXY=${https_proxy}\"\nEnvironment=\"NO_PROXY=${no_proxy}\"\nEnvironment=\"PIP_INDEX_URL=${PIP_INDEX_URL}\"\nEnvironment=\"PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}\"" | sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf > /dev/null
 
-zfs_repo_file="/etc/yum.repos.d/zfs.repo"
-zfs_expected_baseurl="https://nexus.datalabserasaexperian.com.br/repository/zfsonlinux"
+sudo -u ec2-user mkdir -p /home/ec2-user/.docker
+decoded_content=$(echo "ewogICAgInByb3hpZXMiOiB7CiAgICAgICAgImRlZmF1bHQiOiB7CiAgICAgICAgICAgICJodHRwUHJveHkiOiAiaHR0cDovL3VzYWVhc3QtcHJveHkudXMuZXhwZXJpYW4uZWVjYTo5NTk1IiwKICAgICAgICAgICAgImh0dHBzUHJveHkiOiAiaHR0cDovL3VzYWVhc3QtcHJveHkudXMuZXhwZXJpYW4uZWVjYTo5NTk1IgogICAgICAgIH0KICAgIH0KfQ==" | base64 -d)
+echo "$decoded_content" | sudo tee /home/ec2-user/.docker/config.json > /dev/null
+sudo chown ec2-user:ec2-user /home/ec2-user/.docker/config.json
 
-if [ ! -f "$zfs_repo_file" ] || ! grep -q "$zfs_expected_baseurl" "$zfs_repo_file"; then
-  log "Configurando o repositório ZFS."
-   tee "$zfs_repo_file" > /dev/null << 'EOF'
-[zfs-kmod]
-# original repo http://download.zfsonlinux.org/epel/
-name=ZFS on Linux for EL$releasever - kmod
-baseurl=https://nexus.datalabserasaexperian.com.br/repository/zfsonlinux/$releasever/kmod/$basearch/
-enabled=1
-metadata_expire=7d
-gpgcheck=0
-EOF
-  check_command "Configurar repositório ZFS"
-  log "Repositório ZFS configurado."
-else
-  log "Repositório ZFS já está configurado corretamente."
-fi
+# Docker Insecure Registries
+echo "$(date) - Setting up Docker Insecure Registries ..."
+decoded_insecure_registry=$(echo "ewoiaW5zZWN1cmUtcmVnaXN0cmllcyI6IFsiZG9ja2VyaHViLmFncmlidXNpbmVzcy1icmFpbi5ici5leHBlcmlhbi5lZWNhIiwicmVnaXN0cnkuYWdyaWJ1c2luZXNzLWJyYWluLmJyLmV4cGVyaWFuLmVlY2EiLCJyZWdpc3RyeS1zbmFwc2hvdC5hZ3JpYnVzaW5lc3MtYnJhaW4uYnIuZXhwZXJpYW4uZWVjYSJdCn0=" | base64 -d)
+echo "$decoded_insecure_registry" | sudo tee /etc/docker/daemon.json > /dev/null
 
-# Instalar o pacote ZFS, se necessário
-if ! rpm -q zfs > /dev/null 2>&1; then
-  log "Instalando o pacote ZFS."
-   dnf install -y zfs
-  check_command "Instalar ZFS"
-  log "Pacote ZFS instalado."
-else
-  log "Pacote ZFS já está instalado."
-fi
+# Add ec2-user to unix docker group
+sudo groupadd docker
+sudo usermod -aG docker ec2-user
+newgrp docker
 
-# Configurar o carregamento automático dos módulos br_netfilter e zfs
-log "Configurando o carregamento automático dos módulos br_netfilter e zfs"
+echo "$(date) - Reloading daemon and restarting docker ..."
+systemctl daemon-reload
+systemctl restart docker
 
-# Configurar o carregamento automático do módulo br_netfilter
-if [ ! -f /etc/modules-load.d/br_netfilter.conf ]; then
-  echo "br_netfilter" |  tee /etc/modules-load.d/br_netfilter.conf
-  check_command "Configurar carregamento automático do módulo br_netfilter"
-  log "Módulo br_netfilter configurado para carregamento automático."
-else
-  log "Módulo br_netfilter já está configurado para carregamento automático."
-fi
-
-# Configurar o carregamento automático do módulo zfs
-if [ ! -f /etc/modules-load.d/zfs.conf ]; then
-  echo "zfs" |  tee /etc/modules-load.d/zfs.conf
-  check_command "Configurar carregamento automático do módulo zfs"
-  log "Módulo zfs configurado para carregamento automático."
-else
-  log "Módulo zfs já está configurado para carregamento automático."
-fi
-
-# Verificar e carregar os módulos ZFS
-if ! lsmod | grep -q zfs; then
-  log "Carregando os módulos ZFS."
-  sudo /sbin/modprobe zfs
-  check_command "Carregar módulos ZFS"
-  log "Módulos ZFS carregados com sucesso."
-else
-  log "Módulos ZFS já estão carregados."
-fi
-
-# # Passo 10: Criar o pool ZFS 'crio-pool' no disco /dev/sda usando caminho persistente
-# log "Criando o pool ZFS 'crio-pool' no disco /dev/sda"
-
-# persistent_path=$(readlink -f /dev/sda)
-# check_command "Identificar caminho persistente para /dev/sda"
-
-# if [ -z "$persistent_path" ]; then
-#   log "Erro ao identificar o caminho persistente para /dev/sda."
-#   exit 1
-# fi
-
-# if  zpool list | grep -q "crio-pool"; then
-#   log "O pool ZFS 'crio-pool' já existe."
-# else
-#    zpool create crio-pool "$persistent_path"
-#   check_command "Criar pool ZFS 'crio-pool'"
-#   log "Pool ZFS 'crio-pool' criado com sucesso."
-# fi
-
-# Passo 11: Instalar o CRI-O
-log "Verificando se o CRI-O já está instalado."
-
-if rpm -q cri-o > /dev/null 2>&1; then
-  log "CRI-O já está instalado, pulando a instalação."
-else
-  log "Instalando o CRI-O"
-  dnf install -y cri-o
-  check_command "Instalar CRI-O"
-  systemctl enable crio
-  check_command "Habilitar CRI-O"
-  log "Instalação do CRI-O concluída."
-fi
-
-# Passo 12: Instalar crictl
-log "Instalando crictl"
-
-VERSION="v1.31.1"  # Definir a versão correta do crictl
-
-if ! command -v crictl &> /dev/null; then
-  # Baixar e instalar a nova versão
-  wget https://github.com/kubernetes-sigs/cri-tools/releases/download/$VERSION/crictl-$VERSION-linux-amd64.tar.gz
-  sudo tar zxvf crictl-$VERSION-linux-amd64.tar.gz -C /usr/local/bin
-  rm -f crictl-$VERSION-linux-amd64.tar.gz
-  log "crictl instalado com sucesso."
-
-  # Criar arquivo de configuração crictl.yaml
-  sudo tee /etc/crictl.yaml > /dev/null << 'EOF'
-runtime-endpoint: unix:///var/run/crio/crio.sock
-image-endpoint: unix:///var/run/crio/crio.sock
-timeout: 10
-debug: false
-EOF
-  log "Configuração crictl.yaml criada."
-else
-  log "crictl já está instalado."
-fi
-
-# Passo 13: Instalar kubelet, kubeadm e kubectl
-log "Instalando kubelet, kubeadm, e kubectl"
-
-if ! rpm -q kubelet kubeadm kubectl > /dev/null 2>&1; then
-   dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
-  check_command "Instalar kubelet, kubeadm e kubectl"
-  log "Pacotes kubelet, kubeadm e kubectl instalados."
-else
-  log "Pacotes kubelet, kubeadm e kubectl já estão instalados."
-fi
-
-# Habilitar e iniciar o serviço kubelet
-log "Habilitando e iniciando o serviço kubelet"
- systemctl enable --now kubelet
-check_command "Habilitar e iniciar kubelet"
-
-# Passo 14: Verificar e garantir que os serviços essenciais estão habilitados para iniciar no boot
-
-log "Verificando se os serviços kubelet e cri-o estão habilitados para iniciar automaticamente."
-
-# Função para verificar e habilitar o serviço no boot
-verificar_e_habilitar_servico() {
-  local servico=$1
-  if systemctl is-enabled $servico > /dev/null 2>&1; then
-    log "O serviço $servico já está habilitado para iniciar no boot."
-  else
-    log "Habilitando o serviço $servico para iniciar no boot."
-    sudo systemctl enable $servico
-    check_command "Habilitar $servico"
-  fi
-}
-
-# Verificar e habilitar os serviços kubelet e cri-o
-verificar_e_habilitar_servico kubelet
-verificar_e_habilitar_servico crio
-
-# Verificar o status dos serviços importantes após o reboot
-log "Verificando o status dos serviços kubelet e cri-o."
-
-verificar_status_servico() {
-  local servico=$1
-  if systemctl is-active $servico > /dev/null 2>&1; then
-    log "O serviço $servico está em execução."
-  else
-    log "O serviço $servico não está em execução. Tentando iniciar o serviço $servico."
-    sudo systemctl start $servico
-    if systemctl is-active $servico > /dev/null 2>&1; then
-      log "O serviço $servico foi iniciado com sucesso."
-    else
-      log "Falha ao iniciar o serviço $servico. Verifique os logs para mais detalhes."
-    fi
-  fi
-}
-
-# Verificar o status dos serviços kubelet e cri-o
-verificar_status_servico kubelet
-verificar_status_servico crio
-
-log "Configuração concluída."
-
-# Passo 15: Criar e carregar o script de configuração do proxy do CRI-O no sistema
-
-if [ ! -f /etc/profile.d/crio-proxy.sh ] || ! grep -q "ativar_proxy_crio" /etc/profile.d/crio-proxy.sh; then
-  sudo tee /etc/profile.d/crio-proxy.sh > /dev/null << 'EOF'
-# Função para ativar o proxy no CRI-O
-function ativar_proxy_crio() {
-  sudo mkdir -p /etc/systemd/system/crio.service.d
-  
-  sudo tee /etc/systemd/system/crio.service.d/proxy.conf > /dev/null << 'EOL'
-[Service]
-Environment="HTTP_PROXY=http://spobrproxy.serasa.intranet:3128"
-Environment="HTTPS_PROXY=http://spobrproxy.serasa.intranet:3128"
-Environment="NO_PROXY=localhost,127.0.0.1"
-EOL
-
-  sudo systemctl daemon-reload
-  sudo systemctl restart crio
-  echo "Proxy ativado no CRI-O"
-}
-
-# Função para desativar o proxy no CRI-O
-function desativar_proxy_crio() {
-  if [ -f /etc/systemd/system/crio.service.d/proxy.conf ]; then
-    sudo rm /etc/systemd/system/crio.service.d/proxy.conf
-    echo "Arquivo de proxy removido"
-  fi
-
-  sudo systemctl daemon-reload
-  sudo systemctl restart crio
-  echo "Proxy desativado no CRI-O"
-}
-EOF
-
-  sudo chmod +x /etc/profile.d/crio-proxy.sh
-  echo "Arquivo /etc/profile.d/crio-proxy.sh criado e configurado."
-else
-  echo "Arquivo /etc/profile.d/crio-proxy.sh já existe e está configurado."
-fi
-
-# Verificar se as funções estão carregadas no ambiente
-if ! declare -f ativar_proxy_crio > /dev/null; then
-  echo "Carregando o script /etc/profile.d/crio-proxy.sh no ambiente."
-  source /etc/profile.d/crio-proxy.sh
-else
-  echo "Funções de proxy do CRI-O já estão carregadas no ambiente."
-fi
+# Cria esse arquivo na home pro usuário saber que a máquina está pronta
+sudo touch /home/ec2-user/maquina_pronta.txt
+echo "$(date) - Done!"
