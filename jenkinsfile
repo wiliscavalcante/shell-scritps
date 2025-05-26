@@ -1,0 +1,169 @@
+pipeline {
+    agent any
+
+    options {
+        skipDefaultCheckout()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        ansiColor('xterm')
+    }
+
+    parameters {
+        choice(name: 'BUILD_IMAGE', choices: ['true', 'false'], description: 'Gostaria de construir a imagem Docker? Houve alguma alteração no Dockerfile?')
+        choice(name: 'ENVIRONMENT', choices: ['uat', 'prd'], description: 'Deployment Environment')
+    }
+
+    environment {
+        TERRAFORM_PATH = "eks/terraform"
+        DOCKER_IMAGE_NAME = "risk-management/airflow-aurora"
+        DOCKER_REGISTRY = 'registry.agribusiness-brain.br.experian.eeca'
+        DOCKERFILE_PATH = "docker"
+        AWS_REGION = "sa-east-1"
+        TFLINT_PATH = "../../.tflint.hcl"
+        TF_PLAN_FILE = "tf.plan"
+        AWS_PROFILE = "eec-aurora-${params.ENVIRONMENT}"
+        DO_DEPLOY = true
+    }
+
+    tools {
+        terraform '1.10.2'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Format & Lint') {
+            steps {
+                dir("${env.TERRAFORM_PATH}") {
+                    script {
+                        sh "terraform fmt -recursive"
+                        sh "tflint --init --config=${env.TFLINT_PATH}"
+                        def tflintOutput = sh(script: "tflint --config=${env.TFLINT_PATH}", returnStdout: true)
+                        if (tflintOutput) {
+                            echo "\033[33m⚠️ TFLint Output:\033[0m"
+                            echo tflintOutput
+                        } else {
+                            echo "\033[32m✅ No issues scanned by TFLint.\033[0m"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            when {
+                expression { params.BUILD_IMAGE == 'true' }
+            }
+            steps {
+                script {
+                    echo "Construindo imagem Docker..."
+                    def dateFormat = new java.text.SimpleDateFormat("yyyyMMddHHmm")
+                    def dateNow = new java.util.Date()
+                    def DATE_TAG = dateFormat.format(dateNow)
+                    env.DATE_TAG = DATE_TAG
+                    
+                    sh "docker build -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DATE_TAG} -f ${DOCKERFILE_PATH}/Dockerfile ${DOCKERFILE_PATH} || exit 1"
+                    sh "docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DATE_TAG} ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:latest"
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            when {
+                expression { params.BUILD_IMAGE == 'true' }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'DOCKER_REPOSITORY', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    script {
+                        echo "Realizando login no Docker Registry..."
+                        sh "echo ${PASSWORD} | docker login ${DOCKER_REGISTRY} --username ${USERNAME} --password-stdin"
+                        echo "Enviando imagem para registry..."
+                        sh "docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${env.DATE_TAG}"
+                        sh "docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:latest"
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir("${env.TERRAFORM_PATH}") {
+                    script {
+                        sh "terraform init -upgrade -backend-config=backend-config/${params.ENVIRONMENT}.tf"
+                        def planOutput = sh(
+                            script: "AWS_REGION=${env.AWS_REGION} AWS_PROFILE=${env.AWS_PROFILE} terraform plan -var-file=variables-${params.ENVIRONMENT}.tfvars -out=${env.TF_PLAN_FILE}",
+                            returnStdout: true
+                        )
+                        echo "\033[33m⚠️ Terraform Plan Output:\033[0m"
+                        echo planOutput
+                        if (planOutput.contains("No changes.")) {
+                            currentBuild.result = 'SUCCESS'
+                            error("\033[32m✅ No changes detected. Skipping deploy.\033[0m")
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Ask To Deploy') {
+            steps {
+                script {
+                    if (DO_DEPLOY) {
+                        try {
+                            timeout(time: 10) {
+                            input(message: "Should Jenkins Apply the Terraform Changes?", ok: "Yes, please.")
+                            }
+                        }
+                        catch (err) {
+                            echo "\033[31m❌ Deployment canceled by user.\033[0m"
+                            echo "Caught: ${err}"
+                            DO_DEPLOY = false
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                dir("${env.TERRAFORM_PATH}") {
+                    script {
+                         if (DO_DEPLOY) { 
+                        sh "AWS_REGION=${env.AWS_REGION} AWS_PROFILE=${env.AWS_PROFILE} terraform apply -auto-approve ${env.TF_PLAN_FILE}"
+                         }
+                    }
+                }
+            }
+        }
+
+        stage('Commit Terraform Corrections') {
+            steps {
+                script {
+                    if (DO_DEPLOY) {
+                    def changes = sh(script: "git status --porcelain", returnStdout: true).trim()
+                    if (changes) {
+                        echo "\033[33mDetected changes. Committing updates...\033[0m"
+                        sh "git stash"
+                        sh "git checkout ${env.BRANCH_NAME} && git pull origin ${env.BRANCH_NAME}"
+                        sh "git stash pop"
+                        sh "git add ."
+                        sh "git commit -m '[skip jira] chore: Applying Terraform fmt corrections'"
+                        sh "git push origin ${env.BRANCH_NAME}"
+                        echo "\033[32m✅ Changes commited and pushed to branch: ${env.BRANCH_NAME}.\033[0m"
+                    } else {
+                        echo "\033[32m✅ Nothing to commit!\033[0m"
+                    }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
