@@ -90,25 +90,25 @@ sudo rm "/tmp/ec2-user_backup.tar.gz"
 # sudo su ec2-user -c "eval '$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)'" -s /bin/sh
 
 # Configura variaveis de ambiente
-conteudo_arquivo=$(cat <<EOF
-#!/bin/bash
+# conteudo_arquivo=$(cat <<EOF
+# #!/bin/bash
 
-export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew";
-export HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar";
-export HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew";
-export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin${PATH+:$PATH}";
-export MANPATH="/home/linuxbrew/.linuxbrew/share/man${MANPATH+:$MANPATH}:";
-export INFOPATH="/home/linuxbrew/.linuxbrew/share/info:${INFOPATH:-}";
-export http_proxy=${http_proxy};
-export https_proxy=${https_proxy};
-export no_proxy=${no_proxy};
-export PIP_INDEX_URL=${PIP_INDEX_URL};
-export PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST};
+# export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew";
+# export HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar";
+# export HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew";
+# export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin${PATH+:$PATH}";
+# export MANPATH="/home/linuxbrew/.linuxbrew/share/man${MANPATH+:$MANPATH}:";
+# export INFOPATH="/home/linuxbrew/.linuxbrew/share/info:${INFOPATH:-}";
+# export http_proxy=${http_proxy};
+# export https_proxy=${https_proxy};
+# export no_proxy=${no_proxy};
+# export PIP_INDEX_URL=${PIP_INDEX_URL};
+# export PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST};
 
-EOF
-)
-echo "$conteudo_arquivo" | sudo tee /etc/profile.d/variaveis.sh > /dev/null
-sudo chmod +x /etc/profile.d/variaveis.sh
+# EOF
+# )
+# echo "$conteudo_arquivo" | sudo tee /etc/profile.d/variaveis.sh > /dev/null
+# sudo chmod +x /etc/profile.d/variaveis.sh
 
 # Configura montagem  do EFS no filesystem da instancia:
 # pega o efs id a ser montado
