@@ -82,33 +82,20 @@ sudo tar -xzf "/tmp/ec2-user_backup.tar.gz" -C /home
 # Remove o arquivo de backup
 sudo rm "/tmp/ec2-user_backup.tar.gz"
 
-# TODO instalacao do brew nao esta funcionando! consertar!
-# Instala o brew
-# sudo yum groupinstall 'Development Tools' -y
-# sudo runuser -l ec2-user -c "export NONINTERACTIVE=1 && /bin/bash -c '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'"
-# sudo su ec2-user -c "echo 'eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv)' >> /home/ec2-user/.bashrc" -s /bin/sh
-# sudo su ec2-user -c "eval '$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)'" -s /bin/sh
-
 # Configura variaveis de ambiente
-# conteudo_arquivo=$(cat <<EOF
-# #!/bin/bash
+conteudo_arquivo=$(cat <<EOF
+#!/bin/bash
 
-# export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew";
-# export HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar";
-# export HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew";
-# export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin${PATH+:$PATH}";
-# export MANPATH="/home/linuxbrew/.linuxbrew/share/man${MANPATH+:$MANPATH}:";
-# export INFOPATH="/home/linuxbrew/.linuxbrew/share/info:${INFOPATH:-}";
-# export http_proxy=${http_proxy};
-# export https_proxy=${https_proxy};
-# export no_proxy=${no_proxy};
-# export PIP_INDEX_URL=${PIP_INDEX_URL};
-# export PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST};
+export http_proxy=${http_proxy};
+export https_proxy=${https_proxy};
+export no_proxy=${no_proxy};
+export PIP_INDEX_URL=${PIP_INDEX_URL};
+export PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST};
 
-# EOF
-# )
-# echo "$conteudo_arquivo" | sudo tee /etc/profile.d/variaveis.sh > /dev/null
-# sudo chmod +x /etc/profile.d/variaveis.sh
+EOF
+)
+echo "$conteudo_arquivo" | sudo tee /etc/profile.d/variaveis.sh > /dev/null
+sudo chmod +x /etc/profile.d/variaveis.sh
 
 # Configura montagem  do EFS no filesystem da instancia:
 # pega o efs id a ser montado
@@ -150,48 +137,8 @@ sudo chown -R ec2-user:ec2-user /home/ec2-user
 echo "$(date) - Mounting volumes (including EFS)..."
 sudo mount -a
 
-### DNF UPDATE ####
-echo "$(date) - Setting up cronjob for dnf update ..."
-bash -c 'cat <<EOF > /usr/local/update_ec2.sh
-#!/bin/bash
-
-temp_file=\$(mktemp)
-
-# Executar dnf check-update e salvar a saida, foi preciso adicionar 2>&1 para salvar o warning
-dnf check-update --refresh > "\$temp_file" 2>&1
-
-# Extrair a versão mais recente 
-latest_version=\$(grep -oP "Version \K\d+\.\d+\.\d+" "\$temp_file" | tail -n 1)
-
-rm "\$temp_file"
-
-if [ -n "\$latest_version" ]; then
-    # Atualizar os pacotes usando dnf
-    sudo dnf upgrade --releasever=\$latest_version -y
-
-    # Limpar cache do dnf
-    sudo dnf clean all
-
-    echo "Atualização para a versão \$latest_version concluída."
-else
-    echo "Nenhuma atualização disponível."
-fi
-
-# Executar o comando yum update
-sudo yum update -y
-
-EOF
-chmod +x /usr/local/update_ec2.sh
-(crontab -l ; echo "0 12 * * 1,4 /bin/bash /usr/local/update_ec2.sh") | crontab -
-(crontab -l ; echo "0 18 * * 1,4 /bin/bash /usr/local/update_ec2.sh") | crontab -'
-
-### DNF UPDATE ####
 # Ajusta o dono do EFS montado para ser acessivel pelo ec2-user
 sudo chown -R ec2-user:ec2-user /home/ec2-user/efs
-
-# TODO instalacao do brew nao esta funcionando
-# Instala htop e tmux
-# brew install htop tmux
 
 # cria arquivo de configuração do proxy HTTP e HTTPS
 echo "$(date) - Setting up proxy env vars for docker ..."
@@ -208,14 +155,10 @@ echo "$(date) - Setting up Docker Insecure Registries ..."
 decoded_insecure_registry=$(echo "ewoiaW5zZWN1cmUtcmVnaXN0cmllcyI6IFsiZG9ja2VyaHViLmFncmlidXNpbmVzcy1icmFpbi5ici5leHBlcmlhbi5lZWNhIiwicmVnaXN0cnkuYWdyaWJ1c2luZXNzLWJyYWluLmJyLmV4cGVyaWFuLmVlY2EiLCJyZWdpc3RyeS1zbmFwc2hvdC5hZ3JpYnVzaW5lc3MtYnJhaW4uYnIuZXhwZXJpYW4uZWVjYSJdCn0=" | base64 -d)
 echo "$decoded_insecure_registry" | sudo tee /etc/docker/daemon.json > /dev/null
 
-# Add ec2-user to unix docker group
-sudo groupadd docker
-sudo usermod -aG docker ec2-user
-newgrp docker
 
 echo "$(date) - Reloading daemon and restarting docker ..."
-systemctl daemon-reload
-systemctl restart docker
+sudo systemctl daemon-reload
+sudo systemctl restart docker
 
 # Cria esse arquivo na home pro usuário saber que a máquina está pronta
 sudo touch /home/ec2-user/maquina_pronta.txt
