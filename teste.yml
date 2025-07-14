@@ -111,3 +111,49 @@ prometheusOperator:
     key: dedicated
     operator: Equal
     value: infra
+---
+loki:
+  config:
+    compactor:
+      compaction_interval: 5m
+      shared_store: s3
+      working_directory: /data/compactor
+    schema_config:
+      configs:
+      - from: "2022-04-03"
+        index:
+          period: 24h
+          prefix: index_
+        object_store: s3
+        schema: v11
+        store: boltdb-shipper
+    storage_config:
+      aws:
+        endpoint: s3.sa-east-1.amazonaws.com
+        region: sa-east-1
+        s3: se-398089136d5ba504-agribusiness-eks-dev-metrics-logs
+        s3forcepathstyle: true
+      boltdb_shipper:
+        active_index_directory: /data/loki/index
+        cache_location: /data/loki/index_cache
+        shared_store: s3
+  image:
+    tag: 2.9.8
+  nodeSelector:
+    Worker: infra
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+  tolerations:
+  - effect: NoSchedule
+    key: dedicated
+    operator: Equal
+    value: infra
+promtail:
+  tolerations:
+  - operator: Exists
+
