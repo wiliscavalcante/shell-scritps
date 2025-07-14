@@ -1,3 +1,371 @@
+resource "helm_release" "kube-prometheus" {
+  depends_on = [
+    helm_release.external-dns,
+    helm_release.aws-efs-csi-driver
+  ]
+  name             = "kube-prometheus-stack"
+  namespace        = "monitoring-system"
+  repository       = "https://prometheus-community.github.io/helm-charts"
+  chart            = "kube-prometheus-stack"
+  create_namespace = true
+  wait             = true
+  timeout          = 1800
+  version          = var.eks_charts_version[var.eks_cluster_version].prometheus
+
+  set {
+    name  = "grafana.adminPassword"
+    value = random_password.password.result
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].name"
+    value = "Loki"
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].type"
+    value = "loki"
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].url"
+    value = "http://loki-stack.monitoring-system:3100/"
+  }
+  set {
+    name  = "grafana.initChownData.enabled"
+    value = "false"
+  }
+  set {
+    name  = "grafana.persistence.enabled"
+    value = "true"
+  }
+  set {
+    name  = "grafana.persistence.storageClassName"
+    value = var.efs_enabled ? "efs-sc" : "gp2"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "grafana.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "grafana.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "grafana.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "grafana.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "grafana.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.patch.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.patch.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.patch.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.patch.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.patch.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "prometheusOperator.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "prometheusOperator.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "prometheusOperator.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "prometheusOperator.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "prometheusOperator.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName"
+    value = var.efs_enabled ? "efs-sc" : "gp2"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.accessModes[0]"
+    value = "ReadWriteOnce"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage"
+    value = "128Gi"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.scrapeInterval"
+    value = "30s"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.evaluationInterval"
+    value = "30s"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "kubeStateMetrics.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "kubeStateMetrics.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "kubeStateMetrics.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "kubeStateMetrics.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "kubeStateMetrics.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.resources.requests.cpu"
+    value = "100m"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.resources.requests.memory"
+    value = "256Mi"
+  }
+  set {
+    name  = "prometheusOperator.resources.requests.cpu"
+    value = "100m"
+  }
+  set {
+    name  = "prometheusOperator.resources.requests.memory"
+    value = "256Mi"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.resources.requests.memory"
+    value = "5Gi"
+  }
+  values = [
+    yamlencode({
+      kube-state-metrics = {
+        collectors = [
+          "certificatesigningrequests",
+          "configmaps",
+          "cronjobs",
+          "daemonsets",
+          "deployments",
+          "endpoints",
+          "horizontalpodautoscalers",
+          "ingresses",
+          "jobs",
+          "leases",
+          "limitranges",
+          "mutatingwebhookconfigurations",
+          "namespaces",
+          "networkpolicies",
+          "nodes",
+          "persistentvolumeclaims",
+          "persistentvolumes",
+          "poddisruptionbudgets",
+          "pods",
+          "replicasets",
+          "replicationcontrollers",
+          "resourcequotas",
+          "secrets",
+          "services",
+          "statefulsets",
+          "storageclasses",
+          "validatingwebhookconfigurations",
+          "volumeattachments"
+
+        ]
+      }
+    })
+  ]
+}
+resource "helm_release" "loki-stack" {
+  depends_on = [
+    helm_release.kube-prometheus
+  ]
+  name       = "loki-stack"
+  namespace  = "monitoring-system"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "loki-stack"
+  timeout    = 600
+  version    = var.eks_charts_version[var.eks_cluster_version].loki
+  set {
+    name  = "loki.config.schema_config.configs[0].from"
+    value = "2022-04-03"
+  }
+  set {
+    name  = "loki.image.tag"
+    value = "2.9.8"
+  }
+  set {
+    name  = "loki.config.schema_config.configs[0].store"
+    value = "boltdb-shipper"
+  }
+  set {
+    name  = "loki.config.schema_config.configs[0].object_store"
+    value = "s3"
+  }
+  set {
+    name  = "loki.config.schema_config.configs[0].schema"
+    value = "v11"
+  }
+  set {
+    name  = "loki.config.schema_config.configs[0].index.prefix"
+    value = "index_"
+  }
+  set {
+    name  = "loki.config.schema_config.configs[0].index.period"
+    value = "24h"
+  }
+  set {
+    name  = "loki.config.storage_config.boltdb_shipper.active_index_directory"
+    value = "/data/loki/index"
+  }
+  set {
+    name  = "loki.config.storage_config.boltdb_shipper.cache_location"
+    value = "/data/loki/index_cache"
+  }
+  set {
+    name  = "loki.config.storage_config.boltdb_shipper.shared_store"
+    value = "s3"
+  }
+  set {
+    name  = "loki.config.storage_config.aws.s3"
+    value = aws_s3_bucket.eks_log_bucket.id
+  }
+  set {
+    name  = "loki.config.storage_config.aws.s3forcepathstyle"
+    value = "true"
+  }
+  set {
+    name  = "loki.config.storage_config.aws.region"
+    value = data.aws_region.current.name
+  }
+  set {
+    name  = "loki.config.storage_config.aws.endpoint"
+    value = "s3.${data.aws_region.current.name}.amazonaws.com"
+  }
+  set {
+    name  = "loki.config.compactor.working_directory"
+    value = "/data/compactor"
+  }
+  set {
+    name  = "loki.config.compactor.compaction_interval"
+    value = "5m"
+  }
+  set {
+    name  = "loki.config.compactor.shared_store"
+    value = "s3"
+  }
+  set {
+    name  = "loki.resources.requests.cpu"
+    value = "200m"
+  }
+  set {
+    name  = "loki.resources.requests.memory"
+    value = "2Gi"
+  }
+  set {
+    name  = "loki.resources.limits.cpu"
+    value = "300m"
+  }
+  set {
+    name  = "loki.resources.limits.memory"
+    value = "5Gi"
+  }
+  set {
+    name  = "loki.nodeSelector.Worker"
+    value = "infra"
+  }
+  set {
+    name  = "loki.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "loki.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "loki.tolerations[0].value"
+    value = "infra"
+  }
+  set {
+    name  = "loki.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "promtail.tolerations[0].operator"
+    value = "Exists"
+  }
+}
+resource "kubectl_manifest" "flagger-crd" {
+  depends_on = [
+    helm_release.loki-stack
+  ]
+  yaml_body = data.http.flagger_crd_manifest.response_body
+}
+
+
+###############################
 #backend.tf
 
 terraform {
