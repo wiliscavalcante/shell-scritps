@@ -1,165 +1,347 @@
-#!/bin/bash
-echo "$(date) - Launch template startup script started!"
+#!/usr/bin/env bash
+set -euo pipefail
 
-# configure access to the outside internet through the proxy
-export http_proxy="http://usaeast-proxy.us.experian.eeca:9595"
-export https_proxy="http://usaeast-proxy.us.experian.eeca:9595"
-export no_proxy=".experian.eeca,localhost,127.0.0.1,169.254.169.254,api,testserver,internal-brain-lb-platform-dev-1449535370.sa-east-1.elb.amazonaws.com"
-export PIP_INDEX_URL="https://nexus.agribusiness-brain.br.experian.eeca/repository/pypi-hub/simple"
-export PIP_TRUSTED_HOST="nexus.agribusiness-brain.br.experian.eeca"
- 
-# Importando Certificado do Nexus
-echo "$(date) - Downloading cert.pem ..."
-aws s3 cp s3://agribusiness-ec2-certs/cert_nexus.pem /tmp/cert.pem
+usage() {
+  cat <<'EOF'
+Uso:
+  backup_batch.sh <region> <vpc_id> [s3_backup_bucket] [max_parallel] [recent_hours]
 
-# Atualiza os pacotes do sistema
-echo "$(date) - updating system packages ..."
-sudo yum update -y
+Exemplos:
+  ./scripts/backup_batch.sh sa-east-1 vpc-0123456789abcdef
+  ./scripts/backup_batch.sh sa-east-1 vpc-0123456789abcdef meu-bucket-backup 4
+  ./scripts/backup_batch.sh sa-east-1 vpc-0123456789abcdef meu-bucket-backup 4 24
+EOF
+}
 
-# Instalação do Git
-echo "$(date) - installing GIT ..."
-sudo yum install git -y
+if [ "$#" -lt 2 ] || [ "$#" -gt 5 ]; then
+  usage
+  exit 1
+fi
 
-# Instalação do Docker
-echo "$(date) - Installing docker ..."
-sudo yum install docker -y
-sudo systemctl start docker
-sudo systemctl enable docker
-sudo usermod -a -G docker ec2-user
+REGION="$1"
+VPC_ID="$2"
+S3_BUCKET="${3:-}"
+MAX_PARALLEL="${4:-3}"
+RECENT_HOURS="${5:-24}"
 
-# Instalação do docker-compose
-echo "$(date) - Installing docker-compose ..."
-python3.11 -m pip install --upgrade pip
-python3.11 -m pip install docker==6.1.3 requests==2.31.0 PyYAML==5.3.1 docker-compose==1.29.2
+if ! [[ "$MAX_PARALLEL" =~ ^[0-9]+$ ]] || [ "$MAX_PARALLEL" -lt 1 ]; then
+  echo "max_parallel deve ser inteiro >= 1"
+  exit 1
+fi
+if ! [[ "$RECENT_HOURS" =~ ^[0-9]+$ ]] || [ "$RECENT_HOURS" -lt 1 ]; then
+  echo "recent_hours deve ser inteiro >= 1"
+  exit 1
+fi
 
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SINGLE_SCRIPT="${BASE_DIR}/scripts/backup_lambda.sh"
+if [ ! -x "$SINGLE_SCRIPT" ]; then
+  echo "Script nao encontrado/executavel: $SINGLE_SCRIPT"
+  exit 1
+fi
 
-# install AWS EFS setup lib
-echo "$(date) - Installing amazon-efs-utils ..."
-sudo yum install -y amazon-efs-utils.noarch
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+BATCH_ID="$(date -u +"%Y-%m-%dT%H-%M-%SZ")"
+BATCH_ROOT="${BASE_DIR}/backups/_batches/${BATCH_ID}"
+FUNCTION_BACKUP_ROOT="${BASE_DIR}/backups/functions"
+LOG_DIR="${BATCH_ROOT}/logs"
+REPORT_DIR="${BATCH_ROOT}/reports"
+FUNCTIONS_FILE="${BATCH_ROOT}/functions.txt"
 
-# Faz backup do conteúdo da home do usuário ec2-user para /tmp
-echo "$(date) - Backup of the /home folder ..."
-sudo tar -czf "/tmp/ec2-user_backup.tar.gz" -C /home .
+mkdir -p "$FUNCTION_BACKUP_ROOT" "$LOG_DIR" "$REPORT_DIR"
 
-# Configuração dos dispositivos e pontos de montagem
-DEVICES=("/dev/nvme1n1")
-MOUNT_POINTS=("/home")
+echo "[1/6] Descobrindo Lambdas da VPC ${VPC_ID} em ${REGION}"
+aws lambda list-functions \
+  --region "$REGION" \
+  --max-items 10000 \
+  --query "Functions[?VpcConfig.VpcId=='${VPC_ID}'].FunctionName" \
+  --output text | tr '\t' '\n' | sed '/^$/d' | sort > "$FUNCTIONS_FILE"
 
-# Loop para formatar e montar os dispositivos
-for ((i=0; i<${#DEVICES[@]}; i++)); do
-    DEVICE=${DEVICES[$i]}
-    MOUNT_POINT=${MOUNT_POINTS[$i]}
+TOTAL="$(wc -l < "$FUNCTIONS_FILE" | tr -d ' ')"
+if [ "$TOTAL" = "0" ]; then
+  echo "Nenhuma Lambda encontrada para VPC ${VPC_ID} em ${REGION}."
+  exit 1
+fi
 
-    # Verifica se o dispositivo já está formatado como XFS
-    if ! sudo xfs_info "$DEVICE" >/dev/null 2>&1; then
-        sudo mkfs.xfs "$DEVICE"
+echo "[2/6] Lambdas encontradas: ${TOTAL}"
+
+cp "$FUNCTIONS_FILE" "${REPORT_DIR}/identified-lambdas.txt"
+python3 - "$FUNCTIONS_FILE" "$REGION" "$VPC_ID" "$ACCOUNT_ID" "$BATCH_ID" "${REPORT_DIR}/identified-lambdas.json" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+
+functions_file, region, vpc_id, account_id, batch_id, output_json = sys.argv[1:]
+with open(functions_file, "r", encoding="utf-8") as f:
+    functions = [line.strip() for line in f if line.strip()]
+
+payload = {
+    "batch_id": batch_id,
+    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    "account_id": account_id,
+    "region": region,
+    "vpc_id": vpc_id,
+    "total_identified": len(functions),
+    "functions": functions,
+}
+
+with open(output_json, "w", encoding="utf-8") as f:
+    json.dump(payload, f, indent=2)
+PY
+
+run_one() {
+  local fn="$1"
+  local log_file="${LOG_DIR}/${fn}.log"
+  local status_file="${LOG_DIR}/${fn}.status"
+
+  if BACKUP_ROOT="$FUNCTION_BACKUP_ROOT" BACKUP_TIMESTAMP="$BATCH_ID" "$SINGLE_SCRIPT" "$fn" "$REGION" "$S3_BUCKET" >"$log_file" 2>&1; then
+    local marker
+    marker="$(grep -E 'BACKUP_(OK|SKIPPED)' "$log_file" | tail -n1 || true)"
+    local backup_dir
+    backup_dir="$(echo "$marker" | sed -n 's/.*backup_dir=\([^ ]*\).*/\1/p')"
+    if echo "$marker" | grep -q 'BACKUP_SKIPPED'; then
+      printf 'SKIP|%s\n' "$backup_dir" > "$status_file"
+    else
+      printf 'OK|%s\n' "$backup_dir" > "$status_file"
     fi
+  else
+    printf 'FAIL|\n' > "$status_file"
+  fi
+}
 
-    # Cria o diretório de ponto de montagem, se não existir
-    if [ ! -d "$MOUNT_POINT" ]; then
-        sudo mkdir "$MOUNT_POINT"
-    fi
+echo "[3/6] Executando backup em lote (paralelismo=${MAX_PARALLEL})"
+PIDS=()
+COUNT=0
+while IFS= read -r fn; do
+  run_one "$fn" &
+  PIDS+=("$!")
+  COUNT=$((COUNT + 1))
 
-    # Monta o dispositivo no ponto de montagem
-    sudo mount "$DEVICE" "$MOUNT_POINT"
+  if [ "${#PIDS[@]}" -ge "$MAX_PARALLEL" ]; then
+    for pid in "${PIDS[@]}"; do
+      wait "$pid" || true
+    done
+    PIDS=()
+  fi
 
-    # Obtém o UUID do dispositivo
-    UUID=$(sudo blkid -s UUID -o value "$DEVICE")
+done < "$FUNCTIONS_FILE"
 
-    # Adiciona uma entrada no /etc/fstab para montagem automática
-    if ! sudo grep -q "$UUID" /etc/fstab; then
-        echo "UUID=$UUID $MOUNT_POINT xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
-    fi
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || true
 done
 
-# Comenta a linha do fstab referente a montagem padrao do /home
-# para que depois do reboot ele nao tente montar a home assim, e sim do jeito definido acima
-sudo sed -i '/^\/dev\/mapper\/rootvg-home/s//#&/' /etc/fstab
+SUCCESS=0
+SKIPPED=0
+FAILED=0
+while IFS= read -r fn; do
+  if [ -f "${LOG_DIR}/${fn}.status" ] && grep -q '^OK|' "${LOG_DIR}/${fn}.status"; then
+    SUCCESS=$((SUCCESS + 1))
+  elif [ -f "${LOG_DIR}/${fn}.status" ] && grep -q '^SKIP|' "${LOG_DIR}/${fn}.status"; then
+    SKIPPED=$((SKIPPED + 1))
+  else
+    FAILED=$((FAILED + 1))
+  fi
+done < "$FUNCTIONS_FILE"
 
-# Restaura o conteúdo do backup na nova home do usuário ec2-user
-sudo tar -xzf "/tmp/ec2-user_backup.tar.gz" -C /home
+echo "[4/6] Gerando relatorios"
+python3 - "$BATCH_ROOT" "$FUNCTION_BACKUP_ROOT" "$LOG_DIR" "$FUNCTIONS_FILE" "$REGION" "$VPC_ID" "$ACCOUNT_ID" "$BATCH_ID" "$SUCCESS" "$SKIPPED" "$FAILED" "$RECENT_HOURS" <<'PY'
+import csv
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
 
-# Remove o arquivo de backup
-sudo rm "/tmp/ec2-user_backup.tar.gz"
+(
+    batch_root,
+    backup_root,
+    log_dir,
+    functions_file,
+    region,
+    vpc_id,
+    account_id,
+    batch_id,
+    success,
+    skipped,
+    failed,
+    recent_hours,
+) = sys.argv[1:]
 
-# Configura variaveis de ambiente
-conteudo_arquivo=$(cat <<EOF
-#!/bin/bash
+with open(functions_file, "r", encoding="utf-8") as f:
+    functions = [line.strip() for line in f if line.strip()]
 
-export http_proxy=${http_proxy};
-export https_proxy=${https_proxy};
-export no_proxy=${no_proxy};
-export PIP_INDEX_URL=${PIP_INDEX_URL};
-export PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST};
+recent_hours_int = int(recent_hours)
+recent_threshold = datetime.now(timezone.utc) - timedelta(hours=recent_hours_int)
 
-EOF
-)
-echo "$conteudo_arquivo" | sudo tee /etc/profile.d/variaveis.sh > /dev/null
-sudo chmod +x /etc/profile.d/variaveis.sh
+def get_last_invocation_utc(function_name, region):
+    log_group = f"/aws/lambda/{function_name}"
+    try:
+        out = subprocess.check_output(
+            [
+                "aws",
+                "logs",
+                "describe-log-streams",
+                "--region",
+                region,
+                "--log-group-name",
+                log_group,
+                "--order-by",
+                "LastEventTime",
+                "--descending",
+                "--max-items",
+                "1",
+                "--query",
+                "logStreams[0].lastEventTimestamp",
+                "--output",
+                "text",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return None
 
-# Configura montagem  do EFS no filesystem da instancia:
-# pega o efs id a ser montado
-export KEYNAME=$(ec2-metadata --public-keys | grep keyname | sed 's/[^:]*//' | cut -c 2-)
-declare -A keyname_to_efs_id=( \
-    ["pedro-pimenta"]="fs-0916fec4bb939d013" \
-    ["zeni"]="fs-04828e4d73c735edf" \
-    ["luis-macedo-virginia"]="fs-0a2b653604b1b3ad3" \
-    ["mateus-silva"]="fs-0d0a7a86c67fc3a93" \
-    ["alex-araujo-sbx-virginia"]="fs-01ba7578331a69bf8" \
-    ["lucimara-bragagnolo"]="fs-00b79b5936842f735" \
-    ["mislene-nunes"]="fs-0d0a7a86c67fc3a93" \
-    ["kenia_santos"]="fs-0d0a7a86c67fc3a93" \
-    ["mbalboni"]="fs-0d0a7a86c67fc3a93" \
-    ["gabriel-ferreira-virginia"]="fs-031d26424db7c73e3" \
-    ["allan-lima"]="fs-0e178674a147e0161" \
-    ["nicksson-virginia"]="fs-0f57e8edf7f5beba4" \
-    ["cleverton-santana"]="fs-0e27965f52b06a725" \
-    ["alves-aws-key"]="fs-03d9493157dd84689" \
-    ["alvaro_virginia"]="fs-0e0effe7f5ca1dd89" \
-)
-export EFS_ID=${keyname_to_efs_id[${KEYNAME}]}
-# cria ponto de montagem do EFS
-sudo mkdir /home/ec2-user/efs
-# registra informacao de montagem (qual volume, onde montar, configuracoes)
-sudo echo "$EFS_ID:/ /home/ec2-user/efs efs _netdev,noresvport,tls,iam 0 0" | sudo tee -a /etc/fstab
+    if not out or out in ("None", "null", "NULL"):
+        return None
 
-# Move a pasta do Docker para dentro de /home para não
-# consumir espaço do disco onde a root está montada
-sudo service docker stop
-sudo mv /var/lib/docker /home/docker
-sudo ln -s /home/docker /var/lib/docker
-sudo service docker start
+    try:
+        ts_ms = int(out)
+    except ValueError:
+        return None
 
-# Define a permissão correta para o usuário ec2-user no ponto de montagem
-sudo chown -R ec2-user:ec2-user /home/ec2-user
+    dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+    return dt.isoformat()
 
-# Monta volumes descritos em /etc/fstab
-echo "$(date) - Mounting volumes (including EFS)..."
-sudo mount -a
+items = []
+for fn in functions:
+    status_path = os.path.join(log_dir, f"{fn}.status")
+    log_path = os.path.join(log_dir, f"{fn}.log")
 
-# Ajusta o dono do EFS montado para ser acessivel pelo ec2-user
-sudo chown -R ec2-user:ec2-user /home/ec2-user/efs
+    status = "FAIL"
+    snapshot_dir = os.path.join(backup_root, fn, batch_id)
+    if os.path.exists(status_path):
+        with open(status_path, "r", encoding="utf-8") as sf:
+            raw = sf.read().strip()
+        if raw:
+            parts = raw.split("|", 1)
+            status = parts[0]
+            if len(parts) > 1 and parts[1]:
+                snapshot_dir = parts[1]
 
-# cria arquivo de configuração do proxy HTTP e HTTPS
-echo "$(date) - Setting up proxy env vars for docker ..."
-sudo mkdir -p /etc/systemd/system/docker.service.d/
-echo -e "[Service]\nEnvironment=\"HTTP_PROXY=${http_proxy}\"\nEnvironment=\"HTTPS_PROXY=${https_proxy}\"\nEnvironment=\"NO_PROXY=${no_proxy}\"\nEnvironment=\"PIP_INDEX_URL=${PIP_INDEX_URL}\"\nEnvironment=\"PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}\"" | sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf > /dev/null
+    manifest_path = os.path.join(snapshot_dir, "manifest.json")
 
-sudo -u ec2-user mkdir -p /home/ec2-user/.docker
-decoded_content=$(echo "ewogICAgInByb3hpZXMiOiB7CiAgICAgICAgImRlZmF1bHQiOiB7CiAgICAgICAgICAgICJodHRwUHJveHkiOiAiaHR0cDovL3VzYWVhc3QtcHJveHkudXMuZXhwZXJpYW4uZWVjYTo5NTk1IiwKICAgICAgICAgICAgImh0dHBzUHJveHkiOiAiaHR0cDovL3VzYWVhc3QtcHJveHkudXMuZXhwZXJpYW4uZWVjYTo5NTk1IgogICAgICAgIH0KICAgIH0KfQ==" | base64 -d)
-echo "$decoded_content" | sudo tee /home/ec2-user/.docker/config.json > /dev/null
-sudo chown ec2-user:ec2-user /home/ec2-user/.docker/config.json
+    error = None
+    code_sha256 = None
+    runtime = None
+    handler = None
+    files = []
+    last_invocation_utc = get_last_invocation_utc(fn, region)
+    executed_recently = None
+    if last_invocation_utc:
+        last_dt = datetime.fromisoformat(last_invocation_utc)
+        executed_recently = last_dt >= recent_threshold
 
-# Docker Insecure Registries
-echo "$(date) - Setting up Docker Insecure Registries ..."
-decoded_insecure_registry=$(echo "ewoiaW5zZWN1cmUtcmVnaXN0cmllcyI6IFsiZG9ja2VyaHViLmFncmlidXNpbmVzcy1icmFpbi5ici5leHBlcmlhbi5lZWNhIiwicmVnaXN0cnkuYWdyaWJ1c2luZXNzLWJyYWluLmJyLmV4cGVyaWFuLmVlY2EiLCJyZWdpc3RyeS1zbmFwc2hvdC5hZ3JpYnVzaW5lc3MtYnJhaW4uYnIuZXhwZXJpYW4uZWVjYSJdCn0=" | base64 -d)
-echo "$decoded_insecure_registry" | sudo tee /etc/docker/daemon.json > /dev/null
+    if status in ("OK", "SKIP") and os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as mf:
+            m = json.load(mf)
+        code_sha256 = m.get("code_sha256")
+        runtime = m.get("runtime")
+        handler = m.get("handler")
+        files = m.get("files", [])
+    else:
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8", errors="replace") as lf:
+                lines = [ln.strip() for ln in lf.readlines() if ln.strip()]
+            if lines:
+                error = lines[-1]
 
+    items.append(
+        {
+            "function_name": fn,
+            "status": status,
+            "backup_dir": snapshot_dir,
+            "manifest": manifest_path if os.path.exists(manifest_path) else None,
+            "runtime": runtime,
+            "handler": handler,
+            "code_sha256": code_sha256,
+            "last_invocation_utc": last_invocation_utc,
+            "executed_recently": executed_recently,
+            "recent_window_hours": recent_hours_int,
+            "files": files,
+            "error": error,
+        }
+    )
 
-echo "$(date) - Reloading daemon and restarting docker ..."
-sudo systemctl daemon-reload
-sudo systemctl restart docker
+summary = {
+    "batch_id": batch_id,
+    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    "account_id": account_id,
+    "region": region,
+    "vpc_id": vpc_id,
+    "total_functions": len(functions),
+    "success_count": int(success),
+    "skipped_count": int(skipped),
+    "failed_count": int(failed),
+    "recent_window_hours": recent_hours_int,
+    "batch_root": batch_root,
+    "items": items,
+}
 
-# Cria esse arquivo na home pro usuário saber que a máquina está pronta
-sudo touch /home/ec2-user/maquina_pronta.txt
-echo "$(date) - Done!"
+report_json = os.path.join(batch_root, "reports", "backup-report.json")
+with open(report_json, "w", encoding="utf-8") as f:
+    json.dump(summary, f, indent=2)
+
+report_csv = os.path.join(batch_root, "reports", "backup-report.csv")
+with open(report_csv, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "function_name",
+        "status",
+        "backup_dir",
+        "runtime",
+        "handler",
+        "code_sha256",
+        "last_invocation_utc",
+        "executed_recently",
+        "recent_window_hours",
+        "files_count",
+        "error",
+    ])
+    for i in items:
+        writer.writerow([
+            i["function_name"],
+            i["status"],
+            i["backup_dir"],
+            i["runtime"],
+            i["handler"],
+            i["code_sha256"],
+            i["last_invocation_utc"],
+            i["executed_recently"],
+            i["recent_window_hours"],
+            len(i["files"]),
+            i["error"],
+        ])
+
+print(report_json)
+print(report_csv)
+PY
+
+echo "[5/6] Relatorios gerados"
+echo "Identificadas na VPC:"
+cat "${REPORT_DIR}/identified-lambdas.txt"
+echo "---"
+cat "${REPORT_DIR}/backup-report.csv"
+
+echo "[6/6] Final"
+echo "BATCH_ID=${BATCH_ID}"
+echo "BATCH_ROOT=${BATCH_ROOT}"
+echo "REPORT_JSON=${REPORT_DIR}/backup-report.json"
+echo "REPORT_CSV=${REPORT_DIR}/backup-report.csv"
+echo "IDENTIFIED_TXT=${REPORT_DIR}/identified-lambdas.txt"
+echo "IDENTIFIED_JSON=${REPORT_DIR}/identified-lambdas.json"
+echo "RECENT_HOURS=${RECENT_HOURS}"
+echo "TOTAL=${TOTAL} SUCCESS=${SUCCESS} SKIPPED=${SKIPPED} FAILED=${FAILED}"
+
+if [ "$FAILED" -gt 0 ]; then
+  exit 2
+fi
