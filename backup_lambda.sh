@@ -20,6 +20,15 @@ TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
+hash_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  else
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
+
 mkdir -p "$FUNCTION_ROOT"
 
 echo "[0/7] Lendo estado atual da Lambda"
@@ -27,7 +36,7 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" > "${TMP_DIR}/get-function-current.json"
 aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" > "${TMP_DIR}/configuration-current.json"
 
-readarray -t CURRENT_META < <(python3 - "${TMP_DIR}" <<'PY'
+CURRENT_META="$(python3 - "${TMP_DIR}" <<'PY'
 import hashlib
 import json
 import os
@@ -68,12 +77,12 @@ print(code_url or "")
 print(aws_code_sha256 or "")
 print(config_fingerprint)
 PY
-)
+)"
 
-FUNCTION_ARN="${CURRENT_META[0]}"
-CODE_URL="${CURRENT_META[1]}"
-CURRENT_AWS_CODE_SHA256="${CURRENT_META[2]}"
-CURRENT_CONFIG_FINGERPRINT="${CURRENT_META[3]}"
+FUNCTION_ARN="$(printf '%s\n' "$CURRENT_META" | sed -n '1p')"
+CODE_URL="$(printf '%s\n' "$CURRENT_META" | sed -n '2p')"
+CURRENT_AWS_CODE_SHA256="$(printf '%s\n' "$CURRENT_META" | sed -n '3p')"
+CURRENT_CONFIG_FINGERPRINT="$(printf '%s\n' "$CURRENT_META" | sed -n '4p')"
 
 if [ -z "$FUNCTION_ARN" ] || [ -z "$CODE_URL" ]; then
   echo "Nao foi possivel identificar FunctionArn/Code.Location para ${FUNCTION_NAME}"
@@ -119,8 +128,8 @@ echo "[2/7] Baixando codigo implantado"
 curl -L "$CODE_URL" -o "${BACKUP_DIR}/code.zip" >/dev/null
 
 echo "[3/7] Gerando checksums"
-sha256sum "${BACKUP_DIR}/code.zip" > "${BACKUP_DIR}/code.zip.sha256"
-CODE_SHA256="$(awk '{print $1}' "${BACKUP_DIR}/code.zip.sha256")"
+CODE_SHA256="$(hash_file "${BACKUP_DIR}/code.zip")"
+printf "%s  %s\n" "$CODE_SHA256" "code.zip" > "${BACKUP_DIR}/code.zip.sha256"
 
 echo "[4/7] Gerando manifesto"
 python3 - "${BACKUP_DIR}" "${FUNCTION_NAME}" "${FUNCTION_ARN}" "${REGION}" "${ACCOUNT_ID}" "${TIMESTAMP}" "${CODE_SHA256}" "$CURRENT_AWS_CODE_SHA256" "$CURRENT_CONFIG_FINGERPRINT" <<'PY'
