@@ -118,17 +118,21 @@ while IFS= read -r fn; do
   COUNT=$((COUNT + 1))
 
   if [ "${#PIDS[@]}" -ge "$MAX_PARALLEL" ]; then
+    set +u
     for pid in "${PIDS[@]}"; do
       wait "$pid" || true
     done
+    set -u
     PIDS=()
   fi
 
 done < "$FUNCTIONS_FILE"
 
+set +u
 for pid in "${PIDS[@]}"; do
   wait "$pid" || true
 done
+set -u
 
 SUCCESS=0
 SKIPPED=0
